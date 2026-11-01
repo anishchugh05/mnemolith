@@ -2992,3 +2992,86 @@ mark.todo {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- page changes, touch, notches, type and corners ---------- */
+/* Moving between pages cross-fades (browsers with cross-document view transitions); the header stays put. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
+}
+.masthead {
+  view-transition-name: masthead;
+}
+::view-transition-group(*),
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: 200ms;
+  animation-timing-function: var(--ease);
+}
+::view-transition-group(masthead) {
+  animation: none;
+}
+/* Paragraphs avoid a lonely last word (headings are already balanced). */
+p,
+li,
+figcaption {
+  text-wrap: pretty;
+}
+/* Numbers that sit in columns or change keep their width. */
+.strip-count,
+.step-number,
+.install-version,
+.footer-links span,
+.plot,
+.measurement-note,
+.evidence code {
+  font-variant-numeric: tabular-nums;
+}
+/* Continuous (squircle) corners where the browser draws them; elsewhere the plain radius stays. */
+.button,
+.workbench,
+.dashboard-window,
+.code-block,
+.copy-button,
+.review-card,
+.flow li,
+.mender-shots img,
+.install-content,
+.mender-install-steps,
+.badge,
+.feature-proofs .evidence,
+.prompt-quote {
+  corner-shape: squircle;
+}
+/* Nothing sits under a notch, the Dynamic Island or the home indicator (viewport-fit=cover). */
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+/* Touch screens: tap targets are at least 44px, even where the drawn control is smaller. */
+@media (pointer: coarse) {
+  .brand,
+  .masthead nav a,
+  .footer-links a,
+  .text-link,
+  .prereq-row > a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .theme {
+    width: 44px;
+    height: 44px;
+  }
+  .copy-button,
+  .plain-button,
+  .small-button {
+    min-height: 44px;
+    min-width: 48px;
+  }
+  .code-block {
+    padding-right: 72px;
+  }
+}

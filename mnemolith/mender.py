@@ -607,9 +607,21 @@ def dismiss(project: str, memory_id: str, root: Optional[Path]) -> dict:
     keep = drafts[memory_id].get("file_hashes") or {}
     if root is not None and keep:
         keep = server.content_hashes(list(keep), root)
-    drafts[memory_id] = {"memory_id": memory_id, "dismissed": True, "file_hashes": keep}
+    previous = drafts[memory_id] if not drafts[memory_id].get("dismissed") else drafts[memory_id].get("previous")
+    drafts[memory_id] = {"memory_id": memory_id, "dismissed": True, "file_hashes": keep, "previous": previous}
     save_drafts(project, drafts)
     return {"ok": True, "message": "Draft dismissed. The memory is still waiting for a decision."}
+
+
+def undismiss(project: str, memory_id: str) -> dict:
+    """Brings back a draft you just dismissed (the dashboard's Undo)."""
+    drafts = load_drafts(project)
+    entry = drafts.get(memory_id)
+    if not entry or not entry.get("dismissed") or not entry.get("previous"):
+        raise Refused(404, f"There's no dismissed draft for {memory_id} to bring back.")
+    drafts[memory_id] = entry["previous"]
+    save_drafts(project, drafts)
+    return {"ok": True, "message": "Draft back."}
 
 
 # ---------- what an AI tool sees ----------

@@ -7,7 +7,7 @@
       href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Cpath d=%27M16 2 29 9 16 16 3 9 16 2Zm-13 14 13 7 13-7M3 23l13 7 13-7%27 fill=%27none%27 stroke=%27%2334594f%27 stroke-width=%272.3%27/%3E%3C/svg%3E"
       rel="icon"
     />
-    <meta content="width=device-width,initial-scale=1" name="viewport" />
+    <meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport" />
     <meta content="light dark" name="color-scheme" />
     <meta
       content="Install Mnemolith with one command, connect Claude Code, Cursor, and Codex, and save your first project memory."
@@ -21,7 +21,7 @@
           document.documentElement.dataset.theme = t;
       } catch (e) {}
     </script>
-    <link href="assets/site.css?v=10" rel="stylesheet" />
+    <link href="assets/site.css?v=11" rel="stylesheet" />
     <link
       as="font"
       crossorigin=""
@@ -64,7 +64,38 @@
       content="Mnemolith. Memory that stays true to your code. A stale-memory review card."
     />
     <!-- Privacy-friendly visit counts (no cookies): https://aethercache.goatcounter.com -->
-    <script async data-goatcounter="https://aethercache.goatcounter.com/count" src="https://gc.zgo.at/count.js"></script>
+    <script async data-goatcounter="https://aethercache.goatcounter.com/count" data-goatcounter-settings='{"no_onload": true}' src="https://gc.zgo.at/count.js"></script>
+    <script>
+      // Count a visit only when the page is actually shown, not when it's prerendered in case you click.
+      (function () {
+        function count() {
+          if (window.goatcounter && window.goatcounter.count) window.goatcounter.count({ path: location.pathname + location.search });
+          else setTimeout(count, 300);
+        }
+        function shown() { if (document.prerendering) document.addEventListener("prerenderingchange", count, { once: true }); else count(); }
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", shown); else shown();
+      })();
+    </script>
+    <!-- Pages you're likely to open next load in the background when you hover or start a click on their link
+         (same site only; downloads like install.sh are left out). -->
+    <script type="speculationrules">
+      {
+        "prerender": [
+          {
+            "where": {
+              "and": [
+                { "href_matches": "/*" },
+                { "not": { "href_matches": "/*.sh" } },
+                { "not": { "href_matches": "/*.ps1" } },
+                { "not": { "href_matches": "/assets/*" } },
+                { "not": { "selector_matches": "[download], [target]" } }
+              ]
+            },
+            "eagerness": "moderate"
+          }
+        ]
+      }
+    </script>
   </head>
   <body class="page-install">
     <a class="skip" href="#main">Skip to content</a>
@@ -133,7 +164,7 @@
               remembering.
             </p>
             <div class="install-version">
-              v0.3.0, available on
+              v0.3.1, available on
               <a href="https://pypi.org/project/mnemolith/">PyPI</a> and listed on
               <a href="https://glama.ai/mcp/servers/anishchugh05/mnemolith">Glama</a>
             </div>
@@ -510,7 +541,7 @@
             >GitHub</a
           ><a href="https://pypi.org/project/mnemolith/">PyPI</a
           ><a href="https://glama.ai/mcp/servers/anishchugh05/mnemolith">Glama</a
-          ><span>Mnemolith v0.3.0</span>
+          ><span>Mnemolith v0.3.1</span>
         </div>
       </footer>
     </div>
@@ -520,6 +551,6 @@
       id="copy-status"
       role="status"
     ></div>
-    <script defer="" src="assets/site.js?v=10"></script>
+    <script defer="" src="assets/site.js?v=11"></script>
   </body>
 </html>

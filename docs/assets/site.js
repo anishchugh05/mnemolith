@@ -73,7 +73,8 @@
     if (
       arrival &&
       arrival.url === location.href &&
-      Date.now() - arrival.at < 10000
+      Date.now() - arrival.at < 10000 &&
+      !("onpagereveal" in window) // browsers with page view transitions cross-fade on their own
     )
       reveal($("main"));
   } catch (e) {}

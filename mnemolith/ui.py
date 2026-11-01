@@ -10,6 +10,7 @@ import json
 import os
 import secrets
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -181,13 +182,62 @@ def api_remove(_q, body) -> dict:
             continue
         if m["status"] == "active" or (m["status"] == "stale" and last_reason(m["id"]).endswith(FILE_CHANGE)):
             to_retire.append(m["id"])
+    before = {}
+    for memory_id in to_retire:
+        m = _pairs(server.run("MEM.GET", memory_id))
+        before[memory_id] = {"status": m["status"], "reason": last_reason(memory_id) if m["status"] == "stale" else ""}
     if to_retire:
         pipe = server.db().pipeline(transaction=False)
         for memory_id in to_retire:
             pipe.execute_command("MEM.STATUS", memory_id, "stale", "REASON", REMOVED_REASON)
         pipe.execute()
+    repo = repo_for(name)
     repo_tools.remove(name)
-    return {"ok": True, "retired": len(to_retire)}
+    return {"ok": True, "retired": len(to_retire),
+            "undo": {"name": name, "repo": str(repo) if repo else None, "memories": before}}
+
+
+def api_unremove(_q, body) -> dict:
+    """Undoes Remove project: brings the project back and puts its memories back the way they were."""
+    name = _need(body, "name")
+    memories = body.get("memories") or {}
+    if not isinstance(memories, dict):
+        raise ApiError(400, "memories must be an object.")
+    for memory_id, was in memories.items():
+        got = server.run("MEM.GET", memory_id)
+        if got is None or _pairs(got)["project"] != name or not isinstance(was, dict):
+            continue
+        if was.get("status") == "active":
+            server.run("MEM.STATUS", memory_id, "active", "REASON", "project removal undone")
+        elif was.get("status") == "stale" and str(was.get("reason", "")).endswith(FILE_CHANGE):
+            server.run("MEM.STATUS", memory_id, "stale", "REASON", was["reason"])
+    repo = body.get("repo")
+    if isinstance(repo, str) and repo and Path(repo).is_dir():
+        server.db().set(server.REPO_KEY + name, repo)
+    server.db().set(repo_tools.HIDDEN_KEY + name, "")
+    return {"ok": True}
+
+
+def api_undo(_q, body) -> dict:
+    """Undoes a decision made in Needs a decision: the memory goes back to waiting (stale, with the reason it went
+    stale), linked to the file versions it had, and a memory saved to replace it is retired again."""
+    memory_id = _need(body, "id")
+    reason = _need(body, "reason")
+    if not reason.endswith(FILE_CHANGE):
+        raise ApiError(400, "Only a decision about a stale memory can be undone here.")
+    got = server.run("MEM.GET", memory_id)
+    if got is None:
+        raise ApiError(404, "No memory with that id.")
+    files = body.get("files")
+    if isinstance(files, str) and files != _pairs(got)["files"]:
+        server.run("MEM.FILES", memory_id, files, "REASON", "undone in the dashboard")
+    new_id = body.get("new_id")
+    if isinstance(new_id, str) and new_id:
+        new = server.run("MEM.GET", new_id)
+        if new is not None and _pairs(new)["project"] == _pairs(got)["project"]:
+            server.run("MEM.STATUS", new_id, "stale", "REASON", f"undone in the dashboard (it was replacing {memory_id})")
+    server.run("MEM.STATUS", memory_id, "stale", "REASON", reason)
+    return {"ok": True}
 
 
 def api_pick(_q, _body) -> dict:
@@ -273,6 +323,14 @@ def api_mender_dismiss(_q, body) -> dict:
     project, memory_id, repo = _draft_target(body)
     try:
         return mender.dismiss(project, memory_id, repo)
+    except mender.Refused as e:
+        raise ApiError(e.status, str(e))
+
+
+def api_mender_undismiss(_q, body) -> dict:
+    project, memory_id, repo = _draft_target(body)
+    try:
+        return mender.undismiss(project, memory_id)
     except mender.Refused as e:
         raise ApiError(e.status, str(e))
 
@@ -443,12 +501,36 @@ ROUTES = {
     ("POST", "/api/tools/disconnect"): api_tool_disconnect,
     ("POST", "/api/mender/approve"): api_mender_approve,
     ("POST", "/api/mender/dismiss"): api_mender_dismiss,
+    ("POST", "/api/mender/undismiss"): api_mender_undismiss,
+    ("POST", "/api/undo"): api_undo,
+    ("POST", "/api/projects/unremove"): api_unremove,
     ("GET", "/api/settings"): api_settings,
     ("POST", "/api/settings"): api_settings_save,
 }
 
 
 # ---------- HTTP ----------
+
+# Idempotency: the page sends an Idempotency-Key with every change it asks for, and the same key again if it retries
+# after a dropped connection. A repeated key gets the first answer back instead of doing the change twice (which
+# for Approve or Retire would save a second memory).
+_IDEMPOTENT: dict = {}           # key -> (when, status, response)
+_IDEMPOTENT_LOCK = threading.Lock()
+_IDEMPOTENT_TTL = 600.0
+
+
+def _idempotent_get(key: str):
+    now = time.monotonic()
+    with _IDEMPOTENT_LOCK:
+        for k in [k for k, (t, _s, _r) in _IDEMPOTENT.items() if now - t > _IDEMPOTENT_TTL]:
+            del _IDEMPOTENT[k]
+        hit = _IDEMPOTENT.get(key)
+        return hit[1:] if hit else None
+
+
+def _idempotent_put(key: str, status: int, response: dict) -> None:
+    with _IDEMPOTENT_LOCK:
+        _IDEMPOTENT[key] = (time.monotonic(), status, response)
 
 def make_handler(token: str, port: int):
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
@@ -504,9 +586,19 @@ def make_handler(token: str, port: int):
                 if not isinstance(body, dict):
                     return self._json(400, {"error": "Invalid JSON."})
             query = {k: v[-1] for k, v in parse_qs(url.query).items()}
+            key = (self.headers.get("Idempotency-Key") or "")[:100] if method == "POST" else ""
+            if key:
+                seen = _idempotent_get(f"{url.path} {key}")
+                if seen:
+                    return self._json(*seen)
             try:
-                self._json(200, route(query, body))
+                result = route(query, body)
+                if key:
+                    _idempotent_put(f"{url.path} {key}", 200, result)
+                self._json(200, result)
             except ApiError as e:
+                if key:
+                    _idempotent_put(f"{url.path} {key}", e.status, {"error": str(e)})
                 self._json(e.status, {"error": str(e)})
             except server.EngineDown as e:
                 self._json(503, {"error": str(e)})
