@@ -337,6 +337,30 @@ ol.timeline .details { font-size: var(--t-sm); color: var(--ink-2); margin: 1px 
   .rail-link:hover { background: var(--rail-active); color: var(--rail-ink); }
 }
 
+/* ---------- Mender: a drafted fix sits under the diff it came from ---------- */
+.draft { margin: 0 0 14px; padding: 12px 14px; border-radius: 6px; background: var(--fresh-tint); border-left: 3px solid var(--fresh); max-width: 72ch; }
+.draft.drifted { background: var(--surface-2); border-left-color: var(--gone); }
+.draft-head { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; font-size: var(--t-xs); color: var(--ink-2); margin-bottom: 4px; }
+.draft-head .label { font-weight: 600; color: var(--fresh); }
+.draft.drifted .draft-head .label { color: var(--gone); }
+.draft-text { font-size: var(--t-md); margin: 0; overflow-wrap: anywhere; }
+.draft-text.still { color: var(--fresh); font-weight: 500; }
+.draft-reason { font-size: var(--t-sm); color: var(--ink-2); margin: 4px 0 0; overflow-wrap: anywhere; }
+.draft-warn { font-size: var(--t-sm); color: var(--stale); margin: 6px 0 0; overflow-wrap: anywhere; }
+.draft details { margin-top: 8px; font-size: var(--t-xs); color: var(--ink-2); }
+.draft summary { cursor: pointer; width: fit-content; }
+.draft ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.draft li .what { color: var(--ink); }
+.draft pre { margin: 2px 0 0; font: var(--t-xs)/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); }
+.draft-edit { display: flex; gap: var(--s2); flex-wrap: wrap; margin-top: 10px; }
+.draft-edit input { flex: 1 1 320px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); height: 34px; padding: 0 12px; font-size: var(--t-sm); }
+.draft-edit input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 20%, transparent); }
+.no-draft { font-size: var(--t-xs); color: var(--ink-2); margin: 0 0 12px; }
+.mender-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 18px; }
+.mender-row p { margin: 4px 0 0; font-size: var(--t-sm); color: var(--ink-2); max-width: 62ch; }
+.mender-row .status { display: flex; align-items: center; gap: 8px; font-size: var(--t-xs); color: var(--ink-2); margin-top: 2px; }
+.mender-row .status .pip { margin-top: 0; }
+
 /* ---------- small screens ---------- */
 @media (max-width: 900px) {
   .app, .app.has-detail { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
@@ -388,7 +412,7 @@ const state = {
   memories: [], attention: null, selected: null, detail: null,
   version: "", engineUp: true, loadingList: false, listLoaded: false,
   view: "project", source: "local", discovered: null, discovering: false,
-  scan: null, picked: new Set(), tools: null,
+  scan: null, picked: new Set(), tools: null, settings: null,
 };
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -979,8 +1003,18 @@ async function openTools() {
   showView("tools");
   renderTools();
   document.querySelector("#tools-view h1")?.focus();
-  try { state.tools = await api("/api/tools"); } catch (e) { notify(e.message); }
+  try { [state.tools, state.settings] = await Promise.all([api("/api/tools"), api("/api/settings")]); } catch (e) { notify(e.message); }
   renderTools();
+}
+
+async function saveMender(on, button) {
+  button.disabled = true;
+  try {
+    state.settings = await api("/api/settings", { mender: on });
+    notify(on ? "Mender is on. Stale memories will get a drafted fix." : "Mender is off.");
+    renderTools();
+    if (state.project) { await loadAttention(); renderAttention(); }
+  } catch (e) { notify(e.message); button.disabled = false; }
 }
 
 async function toolAction(tool, action, button) {
@@ -997,9 +1031,9 @@ function renderTools() {
   const view = document.getElementById("tools-view");
   const t = state.tools;
   const head = h("div", { class: "page-head" },
-    h("h1", { tabindex: "-1" }, "AI tools"),
-    h("p", { class: "lede", style: "margin-top:6px" },
-      "Mnemolith is connected to these tools so they save and recall project memories. Disconnecting removes only what Mnemolith added to the tool’s settings. Your memories stay."));
+    h("h1", { tabindex: "-1" }, "Settings"));
+  const toolsIntro = [h("h2", { class: "section", id: "tools-h" }, "AI tools"),
+    h("p", { class: "lede" }, "Mnemolith is connected to these tools so they save and recall project memories. Disconnecting removes only what Mnemolith added to the tool’s settings. Your memories stay.")];
   if (!t) {
     put(view, head, h("div", { class: "panel calm" }, "Checking your AI tools…"));
     return;
@@ -1015,8 +1049,20 @@ function renderTools() {
       btn);
   });
   const exp = h("button", { class: "btn with-icon", type: "button", onclick: () => exportMemories(null, exp) }, icon("export", 14), "Export all memories");
+  const on = state.settings && state.settings.mender;
+  const toggle = h("button", { class: on ? "btn" : "btn primary", type: "button", disabled: state.settings ? null : true,
+    onclick: () => saveMender(!on, toggle) }, on ? "Turn off" : "Turn on");
   put(view, head,
-    h("div", { class: "panel" }, rows),
+    h("section", { "aria-labelledby": "tools-h" }, toolsIntro, h("div", { class: "panel" }, rows)),
+    h("section", { "aria-labelledby": "mender-h" },
+      h("h2", { class: "section", id: "mender-h" }, "Mender"),
+      h("p", { class: "lede" }, "Drafts the fix when a code change makes a memory stale, for you to approve. Simple changes are drafted on this computer by plain rules; your AI tool drafts the rest. No API key, and nothing changes until you approve it."),
+      h("div", { class: "panel mender-row" },
+        h("div", {}, h("span", { class: "name", style: "font-weight:500" }, "Drafted fixes for stale memories"),
+          h("span", { class: "status" }, pip(on ? "active" : "retired"), state.settings ? (on ? "On" : "Off") : "Checking…"),
+          state.settings && state.settings.mender_forced ? h("p", {}, "MNEMOLITH_MENDER is set where the dashboard runs, so it decides.") : null,
+          on ? h("p", {}, "AI tools offer to draft fixes from their next session. Restart any that are open.") : null),
+        toggle)),
     h("section", { "aria-labelledby": "backup-h" },
       h("h2", { class: "section", id: "backup-h" }, "Keep a copy"),
       h("p", { class: "lede" }, "Download every project’s memories, with their linked files and history, as one JSON file."),
@@ -1028,6 +1074,51 @@ function renderTools() {
         h("code", { class: "cmd" }, "mnemolith uninstall"),
         h("p", {}, "Then remove the program itself:"),
         h("code", { class: "cmd" }, t.uninstall))));
+}
+
+// A fix Mender drafted (by rules, or your AI tool through propose_fix), with what it's based on.
+// Approving is refused by the server if the files changed since, so the buttons only offer what still applies.
+function draftBox(m, actions, fold) {
+  const d = m.draft;
+  const still = d.kind === "confirm";
+  const box = h("div", { class: `draft${d.drifted ? " drifted" : ""}`, role: "group", "aria-label": `Suggested fix for ${m.id}` },
+    h("div", { class: "draft-head" }, h("span", { class: "label" }, d.drifted ? "Suggested fix, now out of date" : "Suggested fix"),
+      h("span", {}, `by ${d.by}`, d.created_at ? [" · ", time(d.created_at)] : null)),
+    still ? h("p", { class: "draft-text still" }, "Still true: nothing it says changed.")
+          : h("p", { class: "draft-text" }, richText(d.text)),
+    d.reason ? h("p", { class: "draft-reason" }, pathNodes(d.reason)) : null,
+    d.warnings.map((w) => h("p", { class: "draft-warn" }, "Unverified: ", w)),
+    d.drifted ? h("p", { class: "draft-warn" }, "The files changed again after this was drafted. Reload for a fresh draft, or decide yourself.") : null,
+    d.evidence.length ? h("details", {}, h("summary", {}, `What it’s based on (${d.evidence.length})`),
+      h("ul", {}, d.evidence.map((e) => h("li", {}, h("span", { class: "what" }, pathNodes(e.label)),
+        e.detail ? h("pre", {}, e.detail) : null)))) : null);
+  if (d.drifted) {
+    actions.prepend(h("button", { class: "btn", type: "button", onclick: () => refreshAll().catch((e) => notify(e.message)) }, "Reload"));
+    return box;
+  }
+  const approve = h("button", { class: "btn primary", type: "button",
+    onclick: () => act(approve, "/api/mender/approve", { id: m.id }, (r) => r.message, fold, still) },
+    still ? "Approve: still true" : "Approve fix");
+  const dismiss = h("button", { class: "btn", type: "button",
+    onclick: () => act(dismiss, "/api/mender/dismiss", { id: m.id }, (r) => r.message) }, "Dismiss");
+  const buttons = [approve];
+  if (!still) {
+    const edit = h("button", { class: "btn", type: "button", onclick: () => {
+      const input = h("input", { type: "text", value: d.text, maxlength: "500", "aria-label": `Edit the drafted fix for ${m.id}` });
+      const save = h("button", { class: "btn primary", type: "button",
+        onclick: () => act(save, "/api/mender/approve", { id: m.id, text: input.value }, (r) => r.message, fold) }, "Save and approve");
+      const cancel = h("button", { class: "btn", type: "button", onclick: () => { form.remove(); edit.hidden = false; edit.focus(); } }, "Cancel");
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") save.click(); if (e.key === "Escape") { e.stopPropagation(); cancel.click(); } });
+      const form = h("div", { class: "draft-edit" }, input, save, cancel);
+      edit.hidden = true;
+      box.append(form);
+      input.focus(); input.select();
+    } }, "Edit…");
+    buttons.push(edit);
+  }
+  buttons.push(dismiss);
+  actions.prepend(...buttons);
+  return box;
 }
 
 function renderAttention() {
@@ -1049,15 +1140,21 @@ function renderAttention() {
     const confirm = h("button", { class: "btn primary", type: "button",
       onclick: () => act(confirm, "/api/confirm", { id: m.id },
         m.files.length ? `${m.id} confirmed and re-linked.` : `${m.id} confirmed.`, fold, true) }, "Still true");
-    put(actions, confirm,
+    put(actions, m.draft && m.draft.kind === "confirm" ? null : confirm,
       h("button", { class: "btn retire-trigger", type: "button", onclick: () => retireForm(m, actions, fold) }, "Retire…"),
       h("button", { class: "btn", type: "button", onclick: () => openMemory(m.id) }, "History"));
+    if (m.draft) confirm.classList.remove("primary");
+    const fix = m.draft ? draftBox(m, actions, fold) : null;
     put(fold, h("div", {}, h("article", { class: "decision", "aria-labelledby": `d-${m.id}` },
       pip("stale"),
       h("div", {},
         h("p", { class: "text", id: `d-${m.id}` }, richText(m.text)),
         h("p", { class: "why" }, m.reason ? pathNodes(`Went stale: ${m.reason}.`) : "Marked stale."),
         diff(m.files),
+        fix,
+        a.mender && !m.draft ? h("p", { class: "no-draft" }, m.draft_dismissed
+          ? "You dismissed Mender’s draft. Decide it yourself, or ask your AI tool to look again."
+          : "No draft yet: this change needs judgment. Ask your AI tool to “fix the stale memories”, or decide it yourself.") : null,
         h("p", { class: "meta" }, `Saved by ${m.source} `, time(m.created_at), " as ", h("span", { class: "mono" }, m.id)),
         actions))));
     items.push(fold);
@@ -1084,7 +1181,9 @@ function renderAttention() {
   if (items.length) {
     put(sec, head,
       h("p", { class: "lede" }, a.stale.length
-        ? "These went stale because files they depend on changed, so your AI no longer sees them. Confirm the ones that are still true and retire the rest."
+        ? (a.stale.some((m) => m.draft)
+          ? "These went stale because files they depend on changed, so your AI no longer sees them. Mender drafted fixes where it could: approve them, or decide yourself."
+          : "These went stale because files they depend on changed, so your AI no longer sees them. Confirm the ones that are still true and retire the rest.")
         : "Your AI saved facts that may contradict each other. Decide which one holds."),
       h("div", { class: "panel" }, items));
   } else if (state.projects.some((x) => x.name === state.project && totalOf(x) === 0)) {
@@ -1199,7 +1298,7 @@ function renderShell() {
       h("ul", { class: "projects", id: "projects" }),
       h("button", { class: "add-project", id: "add-project", type: "button", onclick: () => openAdd(false) }, icon("plus", 14), "Add project"),
       h("div", { style: "margin-top:auto" }),
-      h("button", { class: "rail-link", id: "tools-link", type: "button", onclick: () => openTools() }, icon("plug", 14), "AI tools"),
+      h("button", { class: "rail-link", id: "tools-link", type: "button", onclick: () => openTools() }, icon("plug", 14), "Settings"),
       h("div", { class: "engine", id: "engine", role: "status" })),
     h("main", {}, h("div", { class: "page", id: "add-view", hidden: true }),
       h("div", { class: "page", id: "import-view", hidden: true }),

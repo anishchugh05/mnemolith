@@ -150,7 +150,7 @@ the engine only accepts connections from it, and your memories live in `~/.mnemo
 |---|---|
 | `mnemolith setup` | One-time setup: engine, model, and AI tools |
 | `mnemolith add` | Adds the repo you're in (or a path) so the dashboard can check its files; the dashboard can also find and add repos for you |
-| `mnemolith ui` | Opens the dashboard: see what your AI remembers, and confirm or retire memories whose files changed |
+| `mnemolith ui` | Opens the dashboard: see what your AI remembers, and confirm, fix or retire memories whose files changed |
 | `mnemolith import` | Turns the notes in `CLAUDE.md`, `AGENTS.md`, and Cursor rules into memories; shows them first and asks |
 | `mnemolith remove` | Removes a project (default: the one you're in), like **Remove project** in the dashboard: its memories are retired, not deleted |
 | `mnemolith export` | Saves memories, with their linked files and history, to a JSON file (`-p` for one project) |
@@ -158,12 +158,34 @@ the engine only accepts connections from it, and your memories live in `~/.mnemo
 | `mnemolith doctor` | Checks everything and tells you how to fix what's wrong |
 | `mnemolith list` / `recall "query"` / `explain m1` | Look at memories from the terminal |
 | `mnemolith sync` | Writes current memories into `AGENTS.md` / `CLAUDE.md` |
+| `mnemolith mender on` / `off` | Turns [Mender](#mender-drafted-fixes-for-stale-memories) on or off; `mnemolith mend` drafts fixes for this repo now |
 | `mnemolith connect cursor` | Connects one tool (`--print` shows config for any other MCP tool) |
 | `mnemolith start` / `stop` | Runs or stops the engine (it also starts on its own when a tool needs it) |
 | `mnemolith uninstall` | Disconnects your AI tools, stops the engine, and asks before deleting memories |
 
 If `mnemolith` isn't found after installing, run `uv tool update-shell` and open a new terminal. Port 7380 taken?
 Set `MNEMOLITH_PORT` and run `setup` again. To uninstall: `mnemolith uninstall`, then `uv tool uninstall mnemolith`.
+
+## Mender: drafted fixes for stale memories
+
+Flagging a stale memory is half the job: someone still has to work out what's true now and type it in. Mender, an
+optional part of Mnemolith, drafts that for you. `mnemolith setup` asks whether to turn it on; `mnemolith mender on`
+(or **Settings** in the dashboard) changes it later. It needs no API key and installs nothing extra.
+
+- **Simple changes are drafted by plain rules, on your machine.** Mender compares the version of each file the memory
+  was saved against (from git) with the file now. `image: postgres:16` became `image: mysql:8`, so "The database is
+  Postgres (postgres:16 image)" becomes "The database is MySQL (mysql:8 image)". It handles version bumps, moved files
+  (the path is updated, not treated as a deletion), and changes that don't touch the memory at all (only a comment, or
+  lines it doesn't mention), which it suggests confirming as still true.
+- **Everything else is drafted by the AI tool you already use.** With Mender on, Claude Code, Cursor, and Codex get two
+  more tools: `list_stale` shows each stale memory with what changed in its files, and `propose_fix` submits a
+  draft. Drafts are checked against the code: quotes in the reason and new numbers or versions must actually be in
+  the files, or the draft is marked **Unverified**.
+- **You approve every change** in the dashboard, where each draft sits under the diff it came from, with what it's
+  based on. Approve it, edit it, or dismiss it. Approving is refused if the files changed again after the draft was
+  made (it would be based on old code), and if the memory was already settled some other way.
+
+`mnemolith mend` drafts fixes for the repo you're in and lists them.
 
 ## Moving from Aether Cache
 
@@ -187,6 +209,8 @@ Installed some other way? Install `mnemolith` the same way, run `mnemolith setup
 | `check_stale()` | Runs the file check on demand. |
 | `list_conflicts()` / `resolve_conflict(...)` | Reviews pairs of very similar memories that may contradict each other. |
 | `sync_to_files()` | Writes current memories into `AGENTS.md` / `CLAUDE.md` (also: `mnemolith sync`). |
+| `list_stale()` | With Mender on: the stale memories, what changed in their files, and which already have a draft. |
+| `propose_fix(id, new_text?, reason?, still_true?, files?)` | With Mender on: drafts a fix for the user to approve in the dashboard. Checked against the code before it's shown. |
 
 ## Design decisions, and what the measurements said
 
@@ -389,8 +413,10 @@ mnemolith/                   the Python package behind the `mnemolith` command
   connect.py                 registers Mnemolith with Claude Code, Cursor, and Codex
   cli.py                     the `mnemolith` command
   ui.py, ui/index.html       the dashboard (`mnemolith ui`): a local server, its API, and the page
+  mender.py                  Mender: rule-drafted fixes, drafts from AI tools, and the guarded approve
   portability.py             import from notes files, export to JSON
   engine/mnemolith-engine.jar the prebuilt engine (rebuild with `python scripts/build_engine.py`)
+tests/test_mender.py         Mender's rules (`python -m pytest tests`)
 memory_mcp/calibrate.py      similarity calibration for duplicate/contradiction thresholds
 vector_bench.py              HNSW benchmark (writes results.json)
 crash_test.py                kill -9 crash-safety test
@@ -401,7 +427,7 @@ crash_test.py                kill -9 crash-safety test
 Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, and `server.json`, commit, then:
 
 ```sh
-git tag v0.2.2 && git push --tags
+git tag v0.3.0 && git push --tags
 ```
 
 The [release workflow](.github/workflows/release.yml) checks the versions match, builds and smoke-tests the package,

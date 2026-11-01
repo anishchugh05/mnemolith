@@ -21,7 +21,7 @@
           document.documentElement.dataset.theme = t;
       } catch (e) {}
     </script>
-    <link href="assets/site.css?v=9" rel="stylesheet" />
+    <link href="assets/site.css?v=10" rel="stylesheet" />
     <link
       as="font"
       crossorigin=""
@@ -92,7 +92,8 @@
         <nav aria-label="Main navigation">
           <a href="index.html">Home</a
           ><a aria-current="page" href="how-it-works.html">How it works</a
-          ><a href="install.html">Install</a><a href="about.html">About</a>
+          ><a href="install.html">Install</a><a href="mender.html">Mender</a
+          ><a href="about.html">About</a>
         </nav>
         <button
           aria-label="Switch color theme"
@@ -374,6 +375,21 @@
         <div class="feature-support">
           <article class="feature-row">
             <div>
+              <h3>The fix comes drafted.</h3>
+              <p>
+                With <a href="mender.html">Mender</a> on, a stale memory gets a
+                suggested fix under its diff. Simple changes are drafted by rules
+                on your machine; your AI tool drafts the rest. You approve it.
+              </p>
+            </div>
+            <div class="evidence">
+              <span class="old">The database is Postgres (postgres:16 image).</span>
+              <div class="new">The database is MySQL (mysql:8 image).</div>
+              <div class="small">Suggested by Mender&rsquo;s rules · waiting for you</div>
+            </div>
+          </article>
+          <article class="feature-row">
+            <div>
               <h3>You can follow the whole history.</h3>
               <p>
                 See which tool and session saved a memory, the file versions
@@ -561,7 +577,7 @@
             >GitHub</a
           ><a href="https://pypi.org/project/mnemolith/">PyPI</a
           ><a href="https://glama.ai/mcp/servers/anishchugh05/mnemolith">Glama</a
-          ><span>Mnemolith v0.2.2</span>
+          ><span>Mnemolith v0.3.0</span>
         </div>
       </footer>
     </div>
@@ -571,6 +587,6 @@
       id="copy-status"
       role="status"
     ></div>
-    <script defer="" src="assets/site.js?v=9"></script>
+    <script defer="" src="assets/site.js?v=10"></script>
   </body>
 </html>

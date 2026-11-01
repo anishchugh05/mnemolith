@@ -49,3 +49,23 @@ def repo_override() -> str:
     Ignored if the tool didn't fill in the placeholder."""
     value = _env("MNEMOLITH_REPO", "MEMORY_REPO")
     return "" if "${" in value else value
+
+
+# Settings people choose (as opposed to environment variables): Mender on or off, for now.
+SETTINGS_FILE = HOME / "settings.json"
+
+
+def mender_enabled() -> bool:
+    """Whether Mender (drafted fixes for stale memories) is on. MNEMOLITH_MENDER=on/off overrides the saved
+    setting, which `mnemolith setup` asks about and `mnemolith mender on|off` changes."""
+    import json
+    env = _env("MNEMOLITH_MENDER").strip().lower()
+    if env in ("1", "on", "true", "yes"):
+        return True
+    if env in ("0", "off", "false", "no"):
+        return False
+    try:
+        settings = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        return bool(settings.get("mender")) if isinstance(settings, dict) else False
+    except (OSError, ValueError):
+        return False

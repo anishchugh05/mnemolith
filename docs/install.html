@@ -21,7 +21,7 @@
           document.documentElement.dataset.theme = t;
       } catch (e) {}
     </script>
-    <link href="assets/site.css?v=9" rel="stylesheet" />
+    <link href="assets/site.css?v=10" rel="stylesheet" />
     <link
       as="font"
       crossorigin=""
@@ -93,6 +93,7 @@
           <a href="index.html">Home</a
           ><a href="how-it-works.html">How it works</a
           ><a aria-current="page" href="install.html">Install</a
+          ><a href="mender.html">Mender</a
           ><a href="about.html">About</a>
         </nav>
         <button
@@ -132,7 +133,7 @@
               remembering.
             </p>
             <div class="install-version">
-              v0.2.2, available on
+              v0.3.0, available on
               <a href="https://pypi.org/project/mnemolith/">PyPI</a> and listed on
               <a href="https://glama.ai/mcp/servers/anishchugh05/mnemolith">Glama</a>
             </div>
@@ -178,7 +179,9 @@
                   One line does everything: it installs uv (which brings Python)
                   if you don&#8217;t have it, installs Mnemolith, and runs
                   setup. Setup starts the engine, downloads the embedding model
-                  once (~90 MB), and connects Claude Code, Cursor, and Codex.
+                  once (~90 MB), asks whether to turn on
+                  <a href="mender.html">Mender</a> (drafted fixes for stale
+                  memories), and connects Claude Code, Cursor, and Codex.
                   No Java? It downloads a private copy just for Mnemolith.
                 </p>
                 <p class="prereq-note">
@@ -337,6 +340,12 @@
               <summary>What does “stale” mean?</summary>
               <p>
                 When your AI saves a memory, it can link it to the files the fact depends on, like <code>docker-compose.yml</code>. If one of those files changes, the memory is marked stale: your AI stops seeing it, and the dashboard (<code>mnemolith ui</code>) asks you to decide. Click <strong>Still true</strong> to keep it, or <strong>Retire</strong> if it’s wrong now.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>What’s Mender?</summary>
+              <p>
+                An optional part of Mnemolith that drafts the fix when a memory goes stale, so you approve a corrected memory instead of typing it yourself. Simple changes, like <code>postgres:16</code> becoming <code>mysql:8</code>, are drafted by plain rules on your machine; your AI tool drafts the rest. No API key, and nothing changes until you approve it. Setup asks whether to turn it on, and <code>mnemolith mender on</code> or <code>off</code> changes it later. <a href="mender.html">More about Mender</a>.
               </p>
             </details>
             <details class="faq-item">
@@ -501,7 +510,7 @@
             >GitHub</a
           ><a href="https://pypi.org/project/mnemolith/">PyPI</a
           ><a href="https://glama.ai/mcp/servers/anishchugh05/mnemolith">Glama</a
-          ><span>Mnemolith v0.2.2</span>
+          ><span>Mnemolith v0.3.0</span>
         </div>
       </footer>
     </div>
@@ -511,6 +520,6 @@
       id="copy-status"
       role="status"
     ></div>
-    <script defer="" src="assets/site.js?v=9"></script>
+    <script defer="" src="assets/site.js?v=10"></script>
   </body>
 </html>

@@ -2447,3 +2447,548 @@ main:focus {
     transition: none;
   }
 }
+/* Mender page: a first-party add-on, so it reuses the site's tokens and components. */
+.mender-hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 64px;
+  align-items: center;
+  padding: 44px 0 72px;
+}
+.mender-kicker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 22px;
+}
+.mender-hero h1 {
+  font-size: clamp(42px, 4.4vw, 58px);
+  line-height: 1.08;
+  font-weight: 450;
+  max-width: 13ch;
+}
+.mender-lede {
+  font-size: 18px;
+  color: var(--muted);
+  max-width: 46ch;
+  margin-top: 24px;
+}
+.mender-install {
+  background: var(--subtle);
+  margin-top: 28px;
+  max-width: 560px;
+}
+.mender-hero .hero-actions {
+  margin-top: 22px;
+}
+.mender-hero .text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.review-card {
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px -14px #203b3533;
+  overflow: hidden;
+}
+.review-card .demo-caption {
+  padding: 10px 20px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.review-body {
+  padding: 18px 20px 20px;
+}
+.review-body .memory-heading {
+  margin-bottom: 4px;
+}
+.review-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 16px 0 4px;
+}
+.review-body .memory-copy {
+  max-width: none;
+}
+.review-why {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 6px 0 12px;
+}
+.review-draft {
+  border-left: 2px solid var(--active);
+  background: var(--active-soft);
+  border-radius: 0 6px 6px 0;
+  padding: 10px 14px;
+}
+.review-reason {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.review-conf {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.review-conf code {
+  font-size: 12px;
+  color: var(--ink);
+}
+.conf-track {
+  display: inline-block;
+  width: 80px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.conf-track i {
+  display: block;
+  height: 100%;
+  background: var(--active);
+}
+.review-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+.review-actions span {
+  cursor: default;
+}
+.mender-strip-section {
+  border-top: 1px solid var(--line);
+  padding-block: 36px;
+}
+.mender-strip {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 48px;
+  position: relative;
+}
+.mender-strip li {
+  position: relative;
+}
+.mender-strip li + li::before {
+  content: "→";
+  position: absolute;
+  left: -32px;
+  top: 22px;
+  color: var(--muted);
+  font-size: 18px;
+}
+.strip-where {
+  font-size: 12px;
+  color: var(--muted);
+}
+.strip-where code {
+  font-size: 12px;
+}
+.strip-state {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 19px;
+  letter-spacing: -0.015em;
+  margin: 6px 0 8px;
+}
+.strip-count {
+  font: 12px/1 var(--mono);
+  padding: 4px 7px;
+  border-radius: 99px;
+  background: var(--stale-soft);
+  color: var(--stale);
+}
+.mender-strip li > p:last-child {
+  font-size: 14px;
+  color: var(--muted);
+  max-width: 34ch;
+}
+.pip {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+.pip.stale {
+  background: var(--stale);
+}
+.pip.active {
+  background: var(--active);
+}
+.pip.pending {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.mender-problem {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  padding-block: 64px;
+  border-top: 1px solid var(--line);
+}
+.mender-problem h2 {
+  font-size: 36px;
+  max-width: 14ch;
+}
+.mender-problem p {
+  font-size: 16px;
+  color: var(--muted);
+}
+.mender-problem p + p {
+  margin-top: 16px;
+}
+.mender-how {
+  border-top: 1px solid var(--line);
+  padding-block: 64px;
+}
+.mender-how .section-lead h2,
+.mender-safety .section-lead h2,
+.mender-demo .section-lead h2 {
+  font-size: 36px;
+}
+.flow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+.flow li {
+  background: var(--subtle);
+  border-radius: 8px;
+  padding: 20px 20px 22px;
+  position: relative;
+}
+.flow li + li::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: 31px;
+  width: 10px;
+  height: 1px;
+  background: var(--muted);
+}
+.flow .step-number {
+  display: block;
+  margin-bottom: 14px;
+  background: var(--surface);
+}
+.flow-who {
+  display: block;
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 550;
+  margin-bottom: 4px;
+}
+.flow h3 {
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+.flow p {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.mender-safety {
+  border-top: 1px solid var(--line);
+  padding-block: 64px;
+}
+.safety-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 70px;
+  border-top: 1px solid var(--line);
+}
+.safety-row {
+  padding: 22px 0;
+  border-bottom: 1px solid var(--line);
+}
+.safety-row h3 {
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+.safety-row p {
+  font-size: 14px;
+  color: var(--muted);
+  max-width: 52ch;
+}
+.media-placeholder {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  background: repeating-linear-gradient(-45deg, var(--subtle) 0 12px, var(--surface) 12px 24px);
+  color: var(--muted);
+  font-size: 13px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+.media-placeholder p {
+  background: var(--surface);
+  padding: 6px 12px;
+  border-radius: 5px;
+}
+.media-video {
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 0;
+}
+.shot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-top: 20px;
+}
+.shot-grid figure {
+  margin: 0;
+}
+.shot-grid figcaption {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.shot-grid figcaption code {
+  font-size: 12px;
+}
+.mender-install-section {
+  border-top: 1px solid var(--line);
+  padding-block: 64px;
+}
+.mender-install-grid {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 72px;
+  align-items: start;
+}
+.mender-install-grid h2 {
+  font-size: 36px;
+}
+.mender-install-note {
+  font-size: 15px;
+  color: var(--muted);
+  margin: 22px 0 8px;
+}
+.needs {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.needs li + li {
+  margin-top: 6px;
+}
+.needs a {
+  color: var(--ink);
+  text-underline-offset: 3px;
+}
+.needs code {
+  font-size: 0.86em;
+}
+.mender-install-steps {
+  padding: 30px 32px 4px;
+  background: var(--subtle);
+  border-radius: 12px;
+}
+.mender-install-steps .install-step p {
+  font-size: 13px;
+}
+.mender-install-steps .install-step p code {
+  font-size: 0.9em;
+}
+.mender-built {
+  border-top: 1px solid var(--line);
+  padding-block: 48px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+}
+.mender-built h2 {
+  font-size: 24px;
+  line-height: 1.3;
+  max-width: 22ch;
+}
+.mender-built p {
+  font-size: 15px;
+  color: var(--muted);
+}
+mark.todo {
+  background: var(--stale-soft);
+  color: var(--stale);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+@media (max-width: 1100px) {
+  .flow {
+    grid-template-columns: 1fr 1fr;
+  }
+  .flow li:nth-child(3)::before {
+    display: none;
+  }
+}
+@media (max-width: 860px) {
+  .mender-hero,
+  .mender-problem,
+  .mender-install-grid,
+  .mender-built {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .mender-hero {
+    padding: 24px 0 52px;
+  }
+  .mender-strip {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+  .mender-strip li + li::before {
+    content: "↓";
+    left: 0;
+    top: -24px;
+  }
+  .mender-strip li + li {
+    padding-top: 6px;
+  }
+  .safety-list {
+    grid-template-columns: 1fr;
+  }
+  .shot-grid {
+    grid-template-columns: 1fr;
+  }
+  .mender-problem,
+  .mender-how,
+  .mender-safety,
+  .mender-install-section {
+    padding-block: 44px;
+  }
+}
+@media (max-width: 600px) {
+  .mender-hero h1 {
+    font-size: 38px;
+  }
+  .mender-lede {
+    font-size: 16px;
+  }
+  .flow {
+    grid-template-columns: 1fr;
+  }
+  .flow li + li::before {
+    display: none;
+  }
+  .mender-problem h2,
+  .mender-how .section-lead h2,
+  .mender-safety .section-lead h2,
+  .mender-demo .section-lead h2,
+  .mender-install-grid h2 {
+    font-size: 28px;
+  }
+  .mender-install-steps {
+    padding: 22px 14px 2px;
+  }
+  .review-body {
+    padding: 14px;
+  }
+}
+.mender-hero > *,
+.mender-install-grid > * {
+  min-width: 0;
+}
+.shot-grid {
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+}
+.shot-grid img,
+.stats-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.stats-shot {
+  margin: 28px 0 0;
+  max-width: 720px;
+}
+.stats-shot img {
+  background: #fff;
+}
+.stats-shot figcaption {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.stats-shot figcaption code {
+  font-size: 12px;
+}
+@media (max-width: 860px) {
+  .shot-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Mender as part of Mnemolith 0.3 */
+.mender-install-label {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 28px 0 0;
+}
+.mender-hero .mender-install {
+  margin-top: 8px;
+  max-width: 360px;
+}
+.mender-hero-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.mender-shots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.mender-shots figure {
+  margin: 0;
+}
+.mender-shots img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.mender-shots figcaption {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 10px;
+  max-width: 60ch;
+}
+.mender-shots figcaption code,
+.mender-install-steps .install-step p code,
+.flow p code {
+  font-size: 0.9em;
+}
+.mender-install-steps .install-step p a {
+  color: var(--ink);
+  text-underline-offset: 3px;
+}
+@media (max-width: 860px) {
+  .mender-shots {
+    grid-template-columns: 1fr;
+  }
+}

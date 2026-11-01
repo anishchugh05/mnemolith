@@ -62,8 +62,9 @@ def _drop_old_sections(text: str) -> str:
 def add_instructions(path: Path) -> str:
     """Adds (or refreshes) a short, clearly marked section telling the AI to use Mnemolith for project
     memory. Without it, tools tend to reach for their built-in memory instead. Nothing else is touched."""
-    from .server import INSTRUCTIONS
-    block = f"{INSTR_START}\n## Project memory\n{INSTRUCTIONS}\n{INSTR_END}"
+    from . import config
+    from .server import instructions
+    block = f"{INSTR_START}\n## Project memory\n{instructions(config.mender_enabled())}\n{INSTR_END}"
     old = path.read_text(encoding="utf-8") if path.exists() else ""
     current = _drop_old_sections(old)
     if INSTR_START in current and INSTR_END in current:
@@ -290,3 +291,16 @@ CONNECTORS = {"claude-code": connect_claude_code, "cursor": connect_cursor, "cod
 DISCONNECTORS = {"claude-code": disconnect_claude_code, "cursor": disconnect_cursor, "codex": disconnect_codex}
 LABELS = {"claude-code": "Claude Code", "cursor": "Cursor", "codex": "Codex"}
 CHECKS = {"claude-code": claude_code_connected, "cursor": cursor_connected, "codex": codex_connected}
+
+
+def refresh_instructions() -> List[str]:
+    """Rewrites our instruction section for the tools that have one (after Mender is turned on or off)."""
+    done = []
+    for path in (claude_instructions_file(), codex_config().with_name("AGENTS.md")):
+        try:
+            if path.exists() and INSTR_START in path.read_text(encoding="utf-8"):
+                add_instructions(path)
+                done.append(str(path))
+        except OSError:
+            pass
+    return done

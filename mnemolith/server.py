@@ -38,11 +38,22 @@ INSTRUCTIONS = (
     "- If a memory turns out to be wrong, call mark_outdated. If a new fact makes an old one untrue, call "
     "replace_memory."
 )
+MENDER_INSTRUCTIONS = (
+    "\n- Mender is on: memories whose files changed get a drafted fix that the user approves in the dashboard. "
+    "When recall says memories went stale, call list_stale, check the code, and call propose_fix for each one "
+    "without a draft, instead of remember/replace_memory. Nothing changes until the user approves.")
+
+
+def instructions(mender_on: bool) -> str:
+    return INSTRUCTIONS + (MENDER_INSTRUCTIONS if mender_on else "")
+
+
+MENDER_ON = config.mender_enabled()  # read once per session: tools appear or not when the AI tool starts
 
 try:
-    mcp = MCPServer("mnemolith", instructions=INSTRUCTIONS, version=__version__)
+    mcp = MCPServer("mnemolith", instructions=instructions(MENDER_ON), version=__version__)
 except Exception:  # mcp 1.x has no version argument; set it on the underlying server instead
-    mcp = MCPServer("mnemolith", instructions=INSTRUCTIONS)
+    mcp = MCPServer("mnemolith", instructions=instructions(MENDER_ON))
     try:
         mcp._mcp_server.version = __version__
     except AttributeError:
@@ -401,7 +412,12 @@ def recall(query: str, limit: int = 5) -> str:
     history = [h for h in past_versions(project_name(), vector) if h.split("]", 1)[0] not in just_stale]
     if history:
         lines += ["", "Related memories that are no longer current (don't rely on them; they show what changed):"] + history
-    if stale:
+    if stale and MENDER_ON:
+        _refresh_drafts()
+        lines += ["", "These memories were just retired because files they depend on changed. Mender drafts fixes "
+                      "for the user to approve: call list_stale to see what changed, and propose_fix for any without "
+                      "a draft:"] + stale
+    elif stale:
         lines += ["", "These memories were just retired because files they depend on changed. If one is still "
                       "true, call confirm_memory; if it's wrong, save the corrected fact with remember:"] + stale
     return "\n".join(lines)
@@ -466,7 +482,12 @@ def check_stale() -> str:
         stale = check_staleness()
     except EngineDown as e:
         return store_down(e)
-    return "\n".join(stale) if stale else "All memories linked to files are still up to date."
+    if not stale:
+        return "All memories linked to files are still up to date."
+    if MENDER_ON:
+        _refresh_drafts()
+        return "\n".join(stale) + "\nMender drafts fixes for these: call list_stale, then propose_fix for any without a draft."
+    return "\n".join(stale)
 
 
 @mcp.tool()
@@ -574,6 +595,47 @@ def resolve_conflict(new_id: str, old_id: str, replaces_old: bool) -> str:
     except redis.ResponseError as e:
         return f"Couldn't resolve: {e}"
     return f"{old_id} retired; {new_id} replaces it." if replaces_old else f"Kept both {new_id} and {old_id}."
+
+
+# ---------- Mender: drafted fixes for stale memories (only offered to the AI when it's turned on) ----------
+
+def _refresh_drafts() -> None:
+    try:
+        from . import mender
+        mender.refresh(project_name(), git_toplevel())
+    except Exception:
+        pass  # drafting is a convenience; it never gets in the way of recall
+
+
+def list_stale() -> str:
+    """List this project's memories that went stale because files they depend on changed, with what changed in
+    those files, and whether a fix is already drafted. Then check the code and call propose_fix for each one
+    without a draft. The user approves drafts in the dashboard; nothing changes until then."""
+    try:
+        from . import mender
+        check_staleness()
+        return mender.describe_stale(project_name(), git_toplevel())
+    except EngineDown as e:
+        return store_down(e)
+
+
+def propose_fix(memory_id: str, new_text: str = "", reason: str = "", still_true: bool = False,
+                files: Optional[List[str]] = None) -> str:
+    """Draft the fix for a stale memory, for the user to approve in the dashboard (nothing changes until they do).
+    new_text: what's true now, as one short fact in the same style as the old memory.
+    reason: what changed and what you checked in the repo; quote only text that's really in the files.
+    still_true: True if the change doesn't affect the memory (then leave new_text empty).
+    files: repo-relative files the new fact depends on, if different from the old memory's (e.g. after a move)."""
+    try:
+        from . import mender
+        return mender.propose(memory_id, new_text, reason, still_true, config.SOURCE, files, git_toplevel())
+    except EngineDown as e:
+        return store_down(e)
+
+
+if MENDER_ON:
+    mcp.tool()(list_stale)
+    mcp.tool()(propose_fix)
 
 
 def serve() -> None:

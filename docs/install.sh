@@ -7,7 +7,8 @@
 # 2. Installs Mnemolith with uv, or upgrades it if it's already installed. If you had Aether Cache (its earlier
 #    name), it's replaced, and setup moves your memories over.
 # 3. Runs `mnemolith setup`, which starts the engine (downloading a private copy of Java if you
-#    don't have one), downloads the embedding model, and connects Claude Code, Cursor, and Codex.
+#    don't have one), downloads the embedding model, asks whether to turn on Mender (drafted fixes for
+#    stale memories), and connects Claude Code, Cursor, and Codex.
 #
 # Set MNEMOLITH_SKIP_SETUP=1 to install without running setup.
 # Everything runs as your user: nothing needs sudo, and nothing is installed system-wide.
@@ -60,7 +61,13 @@ main() {
   if [ -n "${MNEMOLITH_SKIP_SETUP:-}" ]; then
     say "Installed. Run \`mnemolith setup\` when you're ready."
   else
-    "$bin_dir/mnemolith" setup </dev/null || fail "Setup didn't finish. Fix the problem above, then run \`mnemolith setup\`."
+    # Setup asks one question (whether to turn on Mender). This script arrives through a pipe, so answer it
+    # from the terminal when there is one; without one, setup leaves Mender off and says how to turn it on.
+    if (exec </dev/tty) 2>/dev/null; then
+      "$bin_dir/mnemolith" setup </dev/tty || fail "Setup didn't finish. Fix the problem above, then run \`mnemolith setup\`."
+    else
+      "$bin_dir/mnemolith" setup </dev/null || fail "Setup didn't finish. Fix the problem above, then run \`mnemolith setup\`."
+    fi
   fi
   say ""
   say "Open a new terminal to use the \`mnemolith\` command."

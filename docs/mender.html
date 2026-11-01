@@ -1,0 +1,425 @@
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link
+      href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Cpath d=%27M16 2 29 9 16 16 3 9 16 2Zm-13 14 13 7 13-7M3 23l13 7 13-7%27 fill=%27none%27 stroke=%27%2334594f%27 stroke-width=%272.3%27/%3E%3C/svg%3E"
+      rel="icon"
+    />
+    <meta content="width=device-width,initial-scale=1" name="viewport" />
+    <meta content="light dark" name="color-scheme" />
+    <meta
+      content="Mender, part of Mnemolith, drafts the fix when a code change makes a memory stale. Plain rules on your machine, or the AI tool you already use. You approve every change."
+      name="description"
+    />
+    <title>Mender — Drafted fixes for stale memories</title>
+    <script>
+      try {
+        const t = localStorage.getItem("mnemolith-theme");
+        if (t === "light" || t === "dark")
+          document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+    <link href="assets/site.css?v=10" rel="stylesheet" />
+    <link
+      as="font"
+      crossorigin=""
+      href="assets/plex-sans.woff2"
+      rel="preload"
+      type="font/woff2"
+    />
+    <meta property="og:title" content="Mender — Drafted fixes for stale memories" />
+    <meta
+      property="og:description"
+      content="Mnemolith catches it. Mender drafts the fix. You approve it."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://mnemolith.dev/mender.html" />
+    <meta property="og:image" content="https://mnemolith.dev/assets/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Mender — Drafted fixes for stale memories" />
+    <meta
+      name="twitter:description"
+      content="Mnemolith catches it. Mender drafts the fix. You approve it."
+    />
+    <meta name="twitter:image" content="https://mnemolith.dev/assets/og-image.png" />
+    <!-- Privacy-friendly visit counts (no cookies): https://aethercache.goatcounter.com -->
+    <script async data-goatcounter="https://aethercache.goatcounter.com/count" src="https://gc.zgo.at/count.js"></script>
+  </head>
+  <body class="page-mender">
+    <a class="skip" href="#main">Skip to content</a>
+    <div class="wrap">
+      <header class="masthead">
+        <a aria-label="Mnemolith home" class="brand" href="index.html"
+          ><svg aria-hidden="true" class="brand-mark" fill="none" viewBox="0 0 30 32">
+            <path d="M15 2 28 9 15 16 2 9 15 2Z" stroke="currentColor" stroke-width="2"></path>
+            <path d="m2 16 13 7 13-7M2 23l13 7 13-7" stroke="currentColor" stroke-width="2"></path></svg
+          >Mnemolith</a
+        >
+        <nav aria-label="Main navigation">
+          <a href="index.html">Home</a
+          ><a href="how-it-works.html">How it works</a
+          ><a href="install.html">Install</a
+          ><a aria-current="page" href="mender.html">Mender</a
+          ><a href="about.html">About</a>
+        </nav>
+        <button aria-label="Switch color theme" class="theme" id="theme-toggle" type="button">
+          <svg aria-hidden="true" fill="none" height="17" viewBox="0 0 20 20" width="17">
+            <path
+              d="M16.7 12.6A7 7 0 0 1 7.4 3.3 7 7 0 1 0 16.7 12.6Z"
+              stroke="currentColor"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+            ></path>
+          </svg>
+        </button>
+      </header>
+    </div>
+
+    <main id="main" tabindex="-1">
+      <!-- Hero -->
+      <section aria-labelledby="hero-title" class="mender-hero wrap">
+        <div class="mender-hero-copy">
+          <p class="mender-kicker">
+            <span class="badge pending">Beta</span><span>Mender, part of Mnemolith 0.3</span>
+          </p>
+          <h1 id="hero-title">
+            Mnemolith catches it. Mender drafts the fix. You approve it.
+          </h1>
+          <p class="mender-lede">
+            When a code change makes a memory stale, Mender drafts what&rsquo;s
+            true now and puts it next to the diff in your dashboard. Simple
+            changes are drafted by plain rules on your machine; the AI tool you
+            already use drafts the rest. No API key, and nothing changes until
+            you approve it.
+          </p>
+          <p class="mender-install-label">Already have Mnemolith? Turn it on:</p>
+          <div class="code-block mender-install">
+            <pre>mnemolith mender on</pre>
+            <button type="button" class="copy-button" data-copy="mnemolith mender on" aria-label="Copy command">Copy</button>
+          </div>
+          <div class="hero-actions">
+            <a class="button" href="install.html">Install Mnemolith</a
+            ><a class="text-link" href="#how"
+              >How it works
+              <svg aria-hidden="true" class="link-arrow" fill="none" height="16" viewBox="0 0 20 20" width="16">
+                <path d="M3 10h13m-5-5 5 5-5 5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path></svg
+            ></a>
+          </div>
+        </div>
+
+        <figure class="dashboard-window mender-hero-shot">
+          <figcaption class="dashboard-window-bar">
+            <span>mnemolith ui</span><span>Needs a decision</span>
+          </figcaption>
+          <img src="assets/mender-rules-card.png" width="1212" height="888" decoding="async"
+            alt="A stale memory in the Mnemolith dashboard: 'The database is Postgres (postgres:16 image)'. Under the docker-compose.yml change sits a suggested fix by Mender's rules: 'The database is MySQL (mysql:8 image), run with docker compose', based on the lines image: postgres:16 and image: mysql:8, with buttons to approve, edit or dismiss it." />
+        </figure>
+      </section>
+
+      <!-- Before / after -->
+      <section aria-labelledby="strip-title" class="mender-strip-section wrap">
+        <h2 class="sr-only" id="strip-title">What changes with Mender</h2>
+        <ol class="mender-strip">
+          <li>
+            <span class="strip-where">Your code changes</span>
+            <p class="strip-state"><span class="pip stale" aria-hidden="true"></span>Needs a decision <span class="strip-count">3</span></p>
+            <p>
+              Three memories went stale. Without Mender, someone has to work out
+              what&rsquo;s true now for each one and type it in.
+            </p>
+          </li>
+          <li>
+            <span class="strip-where">Mender</span>
+            <p class="strip-state"><span class="pip pending" aria-hidden="true"></span>Fixes drafted</p>
+            <p>
+              Each stale memory gets a suggested fix under the diff it came from.
+              You approve, edit or dismiss it.
+            </p>
+          </li>
+          <li>
+            <span class="strip-where">A few clicks later</span>
+            <p class="strip-state"><span class="pip active" aria-hidden="true"></span>Nothing to decide</p>
+            <p>
+              Your AI tools see the new facts from their next session. The old
+              ones keep their history.
+            </p>
+          </li>
+        </ol>
+      </section>
+
+      <!-- Problem -->
+      <section aria-labelledby="problem-title" class="mender-problem wrap">
+        <h2 id="problem-title">Flagging a stale memory is half the job.</h2>
+        <div>
+          <p>
+            AI coding tools trust what they&rsquo;ve saved. When the code changes,
+            a memory like &ldquo;we use Postgres&rdquo; quietly becomes wrong, and
+            the AI keeps acting on it.
+          </p>
+          <p>
+            Mnemolith already notices: it links each memory to the files it
+            depends on and flags it when they change. But a person still has to
+            work out what&rsquo;s true now and retype it. That step is easy to
+            skip, so stale memories pile up. Mender does the reading and the
+            drafting, and leaves you the decision.
+          </p>
+        </div>
+      </section>
+
+      <!-- How it works -->
+      <section aria-labelledby="how-title" class="section wrap mender-how" id="how">
+        <div class="section-lead">
+          <h2 id="how-title">From a changed file to a corrected memory.</h2>
+          <p>
+            Mender tries plain rules first, because many changes are mechanical.
+            Whatever needs judgment goes to the AI tool you&rsquo;re already using.
+          </p>
+        </div>
+        <ol class="flow">
+          <li>
+            <span class="step-number">1</span>
+            <span class="flow-who">Mnemolith</span>
+            <h3>Detect</h3>
+            <p>
+              A memory&rsquo;s linked file changed, committed or not, so it&rsquo;s
+              marked stale and your AI stops relying on it.
+            </p>
+          </li>
+          <li>
+            <span class="step-number">2</span>
+            <span class="flow-who">Mender&rsquo;s rules, on your machine</span>
+            <h3>Draft the simple ones</h3>
+            <p>
+              Compares the file version the memory was saved against with the file
+              now. A swapped value, a version bump or a moved file is rewritten into
+              the memory. Only comments or unrelated lines changed? It suggests the
+              memory is still true.
+            </p>
+          </li>
+          <li>
+            <span class="step-number">3</span>
+            <span class="flow-who">Claude Code, Cursor or Codex</span>
+            <h3>Draft the rest</h3>
+            <p>
+              Your AI tool sees what changed with <code>list_stale</code>, checks the
+              repo, and submits a draft with <code>propose_fix</code>. Mender checks it
+              against the code before you see it.
+            </p>
+          </li>
+          <li>
+            <span class="step-number">4</span>
+            <span class="flow-who">You</span>
+            <h3>Review</h3>
+            <p>
+              Approve, edit or dismiss each draft in the dashboard. Approving
+              replaces the old memory with the new one, linked to the current files.
+              History is kept.
+            </p>
+          </li>
+        </ol>
+      </section>
+
+      <!-- Safety -->
+      <section aria-labelledby="safety-title" class="section wrap mender-safety">
+        <div class="section-lead">
+          <h2 id="safety-title">It drafts. You decide.</h2>
+          <p>
+            A tool that rewrites your AI&rsquo;s memory has to be careful about
+            what it writes. These rules are enforced in code, not left to a model.
+          </p>
+        </div>
+        <div class="safety-list">
+          <div class="safety-row">
+            <h3>No silent rewrites</h3>
+            <p>Drafts wait in the dashboard until you approve them. Dismissing one changes nothing.</p>
+          </div>
+          <div class="safety-row">
+            <h3>Stale-draft guard</h3>
+            <p>
+              Each draft remembers the exact file versions it was based on. If a
+              file changes again before you approve, approval is refused and the
+              draft is redone, so Mender never saves a fact that&rsquo;s already
+              out of date.
+            </p>
+          </div>
+          <div class="safety-row">
+            <h3>Checked against the code</h3>
+            <p>Quotes in an AI tool&rsquo;s draft, and any new numbers or versions, must actually be in the files. If not, the draft is marked Unverified.</p>
+          </div>
+          <div class="safety-row">
+            <h3>Renames aren&rsquo;t deletions</h3>
+            <p>A moved file is recognized, and the draft updates the path instead of calling the fact obsolete.</p>
+          </div>
+          <div class="safety-row">
+            <h3>Rules never guess</h3>
+            <p>If a change needs judgment, like a deleted file or a removed setting, the rules leave it alone for you or your AI tool.</p>
+          </div>
+          <div class="safety-row">
+            <h3>No double fixes</h3>
+            <p>If a memory was already settled some other way, approving does nothing and the draft is dropped.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screenshots -->
+      <section aria-labelledby="demo-title" class="dashboard-section wrap mender-demo">
+        <div class="section-lead">
+          <h2 id="demo-title">Right where you already decide.</h2>
+          <p>
+            Drafts show up in the dashboard&rsquo;s Needs a decision list, each
+            under the change it came from, with what it&rsquo;s based on. These are
+            from a real run.
+          </p>
+        </div>
+        <div class="mender-shots">
+          <figure>
+            <img src="assets/mender-ai-card.png" width="1212" height="894" loading="lazy" decoding="async"
+              alt="A stale memory, 'Tests need DOCKER_HOST set', with a suggested fix by Claude Code: 'Tests no longer need DOCKER_HOST: .env.example only sets LOG_LEVEL now', its reason, and the removed DOCKER_HOST line it's based on." />
+            <figcaption>A change that needs judgment: the DOCKER_HOST line was removed. Claude Code drafted this one through <code>propose_fix</code>.</figcaption>
+          </figure>
+          <figure>
+            <img src="assets/mender-still-true-card.png" width="1212" height="718" loading="lazy" decoding="async"
+              alt="A stale memory, 'Run the tests with make test', whose Makefile only gained a comment. Mender's rules suggest it's still true, with an Approve: still true button." />
+            <figcaption>Only a comment changed in the Makefile, so the rules suggest the memory is still true. One click re-links it to the new file.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <!-- Turn it on -->
+      <section aria-labelledby="install-title" class="section wrap mender-install-section" id="install">
+        <div class="mender-install-grid">
+          <div>
+            <h2 id="install-title">Turn it on.</h2>
+            <p class="mender-install-note">
+              Mender comes with Mnemolith 0.3. There&rsquo;s nothing else to
+              install and no key to set up. It needs:
+            </p>
+            <ul class="needs">
+              <li>Your project in a git repo, so Mender can read the file version each memory was saved against</li>
+              <li>For drafts that need judgment: Claude Code, Cursor or Codex, connected to Mnemolith</li>
+            </ul>
+          </div>
+          <div class="mender-install-steps">
+            <div class="install-step">
+              <span class="step-number">1</span>
+              <div>
+                <h3>New to Mnemolith? Setup asks</h3>
+                <div class="code-block">
+                  <pre>curl -fsSL https://mnemolith.dev/install.sh | sh</pre>
+                  <button type="button" class="copy-button" data-copy="curl -fsSL https://mnemolith.dev/install.sh | sh" aria-label="Copy install command">Copy</button>
+                </div>
+                <p>Answer yes to &ldquo;Turn on Mender?&rdquo;. Windows and other ways to install are on the <a href="install.html">install page</a>.</p>
+              </div>
+            </div>
+            <div class="install-step">
+              <span class="step-number">2</span>
+              <div>
+                <h3>Already have it? Upgrade, then turn it on</h3>
+                <div class="code-block">
+                  <pre>uv tool upgrade mnemolith &amp;&amp; mnemolith mender on</pre>
+                  <button type="button" class="copy-button" data-copy="uv tool upgrade mnemolith && mnemolith mender on" aria-label="Copy upgrade command">Copy</button>
+                </div>
+                <p>Installed with pipx or pip? Upgrade with that instead. Restart open AI tools so they offer to draft fixes.</p>
+              </div>
+            </div>
+            <div class="install-step">
+              <span class="step-number">3</span>
+              <div>
+                <h3>Review drafts in the dashboard</h3>
+                <div class="code-block">
+                  <pre>mnemolith ui</pre>
+                  <button type="button" class="copy-button" data-copy="mnemolith ui" aria-label="Copy dashboard command">Copy</button>
+                </div>
+                <p>Want them in the terminal first? <code>mnemolith mend</code> drafts fixes for the repo you&rsquo;re in and lists them.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ -->
+      <section aria-labelledby="faq-title" class="faq" id="faq">
+        <div class="wrap faq-grid">
+          <div class="faq-intro">
+            <h2 id="faq-title">Common questions</h2>
+            <p>Short answers about what Mender changes, what it sends, and what it costs.</p>
+          </div>
+          <div class="faq-list">
+            <details class="faq-item">
+              <summary>Does it change my memories without asking?</summary>
+              <p>
+                No. Every draft waits in the dashboard until you approve it.
+                Dismissing a draft leaves the memory exactly as it was, still
+                waiting for your decision.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>Does my code leave my machine?</summary>
+              <p>
+                Not because of Mender. The rules run on your computer and send
+                nothing anywhere. For drafts that need judgment, your AI tool reads
+                the change and your repo the same way it does whenever you work with
+                it; Mnemolith itself doesn&rsquo;t call any model or service.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>Does it cost anything?</summary>
+              <p>
+                No. Mender is part of Mnemolith, which is free and open source, and
+                it needs no API key. Drafts from your AI tool count toward that
+                tool&rsquo;s usage like any other request.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>What can the rules handle on their own?</summary>
+              <p>
+                A value that was swapped (<code>postgres:16</code> to
+                <code>mysql:8</code>), a version bump (<code>redis==5.0.0</code> to
+                <code>5.2.1</code>), a moved file, and changes that don&rsquo;t touch
+                what the memory says, like comments or unrelated lines. Anything
+                else, like a deleted file or a removed setting, is left for you or
+                your AI tool.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>Do I need Mender to use Mnemolith?</summary>
+              <p>
+                No. It&rsquo;s optional. With it off, Mnemolith works exactly as
+                before: stale memories show up in the dashboard and you decide them
+                yourself.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>What if a draft is wrong?</summary>
+              <p>
+                Edit it before approving, or dismiss it. If you change a file again
+                before reviewing, the old draft can&rsquo;t be approved, and a fresh
+                one is made.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="wrap">
+      <footer class="footer">
+        <span>© 2026 Anish Chugh</span>
+        <div class="footer-links">
+          <a href="install.html#faq">FAQ</a
+          ><a href="https://github.com/anishchugh05/mnemolith/blob/main/LICENSE">License</a
+          ><a href="install.html#contact">Contact</a
+          ><a href="https://github.com/anishchugh05/mnemolith">GitHub</a
+          ><a href="https://pypi.org/project/mnemolith/">PyPI</a
+          ><span>Mnemolith v0.3.0</span>
+        </div>
+      </footer>
+    </div>
+    <div aria-live="polite" class="sr-only" id="copy-status" role="status"></div>
+    <script defer="" src="assets/site.js?v=10"></script>
+  </body>
+</html>

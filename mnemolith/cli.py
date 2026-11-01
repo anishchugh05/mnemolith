@@ -1,5 +1,6 @@
 """The `mnemolith` command."""
 import argparse
+import os
 import sys
 from collections import Counter
 
@@ -76,6 +77,8 @@ def cmd_setup(args) -> int:
                        f"network, then run `mnemolith setup` again. Otherwise it downloads the first time your\n"
                        f"AI saves or searches a memory. Still stuck? Tell us: {config.CONTACT_URL}")
 
+    _setup_mender(args)
+
     tools = args.tools or connect.detected()
     if not tools:
         _say(WARN, "No supported AI coding tools found (Claude Code, Cursor, Codex).")
@@ -96,6 +99,93 @@ def cmd_setup(args) -> int:
           "Then, in a new session:\n"
           '  "How do I run the tests?"\n'
           "\nSee and fix what your AI remembers any time with `mnemolith ui`.")
+    return 0
+
+
+MENDER_PITCH = ("Mender (optional): when a code change makes a memory stale, Mender drafts the corrected memory\n"
+                "         for you to approve in the dashboard. Simple changes are drafted on your machine by plain rules;\n"
+                "         your AI tool drafts the rest. No API key, nothing extra to install, and nothing changes until\n"
+                "         you approve it.")
+
+
+def _setup_mender(args) -> None:
+    from . import mender
+    choice = getattr(args, "mender", None)
+    if choice is None and config.mender_enabled():
+        _say(OK, "Mender is on (drafted fixes for stale memories). Turn it off with `mnemolith mender off`.")
+        return
+    if choice is None:
+        print(f"[  ??  ] {MENDER_PITCH}")
+        if not sys.stdin.isatty():
+            _say(OK, "Mender left off. Turn it on any time with `mnemolith mender on`.")
+            return
+        try:
+            answer = input("         Turn on Mender? [Y/n] ").strip().lower()
+        except EOFError:
+            answer = "n"
+        choice = answer in ("", "y", "yes")
+    mender.set_enabled(choice)
+    _say(OK, "Mender is on: stale memories get a drafted fix to approve in `mnemolith ui`." if choice
+         else "Mender left off. Turn it on any time with `mnemolith mender on`.")
+
+
+def cmd_mender(args) -> int:
+    from . import mender
+    if args.action == "status":
+        on = config.mender_enabled()
+        print(f"Mender is {'on' if on else 'off'}." + (
+            " Stale memories get a drafted fix: approve them in `mnemolith ui`." if on else
+            " Turn it on with `mnemolith mender on`."))
+        if os.environ.get("MNEMOLITH_MENDER"):
+            print("(MNEMOLITH_MENDER is set in this terminal, so it decides here.)")
+        return 0
+    on = args.action == "on"
+    mender.set_enabled(on)
+    refreshed = connect.refresh_instructions()
+    print(f"Mender is {'on' if on else 'off'}." + (
+        " When code changes make a memory stale, you'll find a drafted fix next to it in `mnemolith ui`.\n"
+        "Your AI tools offer to draft fixes too, from their next session (restart any that are open)." if on else
+        " Stale memories still show up in `mnemolith ui`; you decide them yourself."))
+    if refreshed:
+        print("Updated the Mnemolith instructions in " + ", ".join(refreshed) + ".")
+    return 0
+
+
+def cmd_mend(args) -> int:
+    """Drafts fixes for this project's stale memories now and lists them."""
+    from . import mender
+    from .server import EngineDown, check_staleness, git_toplevel, project_name, run, store_down
+    if not config.mender_enabled():
+        print("Mender is off. Turn it on with `mnemolith mender on`.")
+        return 1
+    root = git_toplevel()
+    if root is None:
+        print("This folder isn't in a git repo, so Mender can't compare file versions here.")
+        return 1
+    try:
+        check_staleness()
+        project = project_name()
+        drafts = mender.refresh(project, root)
+        stale = [r for r in run("MEM.LIST", project, "STATUS", "stale")
+                 if mender.needs_decision({"id": r[0], "status": r[1]})]
+    except EngineDown as e:
+        print(store_down(e))
+        return 1
+    if not stale:
+        print(f"No stale memories in {project}. Nothing to fix.")
+        return 0
+    ready = 0
+    for mid, _status, _files, text in stale:
+        d = drafts.get(mid)
+        if d and not d.get("dismissed"):
+            ready += 1
+            fix = "still true" if d["kind"] == "confirm" else f"\"{d['text']}\""
+            print(f"{mid:>5}  \"{text}\"\n       -> {fix}  ({mender.by_label(d.get('by', ''))})")
+        elif d:
+            print(f"{mid:>5}  \"{text}\"\n       -> you dismissed the draft: decide it in `mnemolith ui`")
+        else:
+            print(f"{mid:>5}  \"{text}\"\n       -> no draft yet: ask your AI tool to fix the stale memories")
+    print(f"\n{ready} of {len(stale)} drafted. Approve them in `mnemolith ui`; nothing changes until you do.")
     return 0
 
 
@@ -132,6 +222,8 @@ def cmd_status(args) -> int:
         print(f"This project ({project}): {summary or 'no memories yet'}")
     connected = [t for t in connect.TOOLS if connect.CHECKS[t]()]
     print("Connected tools: " + (", ".join(connected) if connected else "none (run `mnemolith connect`)"))
+    print("Mender: " + ("on (drafted fixes for stale memories)" if config.mender_enabled()
+                        else "off (turn on with `mnemolith mender on`)"))
     return 0
 
 
@@ -186,6 +278,8 @@ def cmd_doctor(args) -> int:
             _say(OK, f"Connected to {tool}")
         elif tool in connect.detected():
             _say(WARN, f"{tool} is installed but not connected. Run `mnemolith connect {tool}`.")
+    _say(OK, "Mender is on: stale memories get drafted fixes to approve in `mnemolith ui`" if config.mender_enabled()
+         else "Mender is off (optional: `mnemolith mender on` drafts fixes for stale memories)")
     from .server import git_toplevel, project_name
     top = git_toplevel()
     _say(OK if top else WARN, f"This folder's project: {project_name()}"
@@ -438,6 +532,10 @@ def main(argv=None) -> None:
     p = sub.add_parser("setup", help="one-time setup: start the engine, download the model, connect your AI tools")
     p.add_argument("tools", nargs="*", metavar="tool",
                    help="which tools to connect (default: every supported tool found)")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--mender", dest="mender", action="store_true", default=None,
+                   help="turn on Mender (drafted fixes for stale memories) without asking")
+    g.add_argument("--no-mender", dest="mender", action="store_false", help="leave Mender off without asking")
     p.set_defaults(func=cmd_setup)
     p = sub.add_parser("connect", help="connect AI tools: claude-code, cursor, codex")
     p.add_argument("tools", nargs="*", metavar="tool",
@@ -457,6 +555,10 @@ def main(argv=None) -> None:
     sub.choices["explain"].set_defaults(func=lambda a: _tool_output("explain_memory", a.id))
     sub.add_parser("sync", help="write current memories into AGENTS.md / CLAUDE.md").set_defaults(
         func=lambda a: _tool_output("sync_to_files"))
+    p = sub.add_parser("mender", help="turn Mender (drafted fixes for stale memories) on or off")
+    p.add_argument("action", nargs="?", default="status", choices=["on", "off", "status"])
+    p.set_defaults(func=cmd_mender)
+    sub.add_parser("mend", help="draft fixes for this project's stale memories now (Mender)").set_defaults(func=cmd_mend)
     sub.add_parser("check", help="retire memories whose linked files changed").set_defaults(
         func=lambda a: _tool_output("check_stale"))
     p = sub.add_parser("add", help="add a repo so the dashboard can check its files (default: this folder)")

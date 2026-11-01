@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 import redis
 
-from . import __version__, config, connect, engine, portability, server
+from . import __version__, config, connect, engine, mender, portability, server
 from . import repos as repo_tools
 
 PAGE = Path(__file__).resolve().parent / "ui" / "index.html"
@@ -233,8 +233,60 @@ def api_attention(q, _body) -> dict:
                         f["now"] = now.get(f["path"])
                 stale.append(summary)
     stale.sort(key=lambda m: -m["created_at"])
+    on = mender.enabled()
+    if on and stale:
+        drafts = mender.refresh(project, repo)
+        for m in stale:
+            d = drafts.get(m["id"])
+            if d and not d.get("dismissed"):
+                m["draft"] = {"kind": d["kind"], "text": d["text"], "reason": d["reason"], "files": d["files"],
+                              "evidence": d.get("evidence", []), "warnings": d.get("warnings", []),
+                              "by": mender.by_label(d.get("by", "")), "rules": d.get("by") == "rules",
+                              "created_at": d.get("created_at"), "drifted": bool(repo) and mender.drifted(d, repo)}
+            elif d:
+                m["draft_dismissed"] = True
     return {"stale": stale, "conflicts": conflicts(project), "checked_files": repo is not None,
-            "repo": str(repo) if repo else None, "just_went_stale": len(just_went_stale)}
+            "repo": str(repo) if repo else None, "just_went_stale": len(just_went_stale), "mender": on}
+
+
+def _draft_target(body) -> tuple:
+    memory_id = _need(body, "id")
+    got = server.run("MEM.GET", memory_id)
+    if got is None:
+        raise ApiError(404, "No memory with that id.")
+    project = _pairs(got)["project"]
+    return project, memory_id, repo_for(project)
+
+
+def api_mender_approve(_q, body) -> dict:
+    project, memory_id, repo = _draft_target(body)
+    text = body.get("text")
+    if text is not None and not isinstance(text, str):
+        raise ApiError(400, "text must be a string.")
+    try:
+        return mender.approve(project, memory_id, repo, text)
+    except mender.Refused as e:
+        raise ApiError(e.status, str(e))
+
+
+def api_mender_dismiss(_q, body) -> dict:
+    project, memory_id, repo = _draft_target(body)
+    try:
+        return mender.dismiss(project, memory_id, repo)
+    except mender.Refused as e:
+        raise ApiError(e.status, str(e))
+
+
+def api_settings(_q, _body) -> dict:
+    return {"mender": mender.enabled(), "mender_forced": bool(os.environ.get("MNEMOLITH_MENDER"))}
+
+
+def api_settings_save(_q, body) -> dict:
+    if not isinstance(body.get("mender"), bool):
+        raise ApiError(400, "mender must be true or false.")
+    mender.set_enabled(body["mender"])
+    connect.refresh_instructions()
+    return api_settings(None, None)
 
 
 def api_memory(q, _body) -> dict:
@@ -389,6 +441,10 @@ ROUTES = {
     ("GET", "/api/tools"): api_tools,
     ("POST", "/api/tools/connect"): api_tool_connect,
     ("POST", "/api/tools/disconnect"): api_tool_disconnect,
+    ("POST", "/api/mender/approve"): api_mender_approve,
+    ("POST", "/api/mender/dismiss"): api_mender_dismiss,
+    ("GET", "/api/settings"): api_settings,
+    ("POST", "/api/settings"): api_settings_save,
 }
 
 
