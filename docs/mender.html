@@ -201,6 +201,36 @@
         </div>
       </section>
 
+      <!-- Demo video -->
+      <section class="dashboard-section demo-section wrap" aria-labelledby="video-title">
+        <div class="section-lead">
+          <h2 id="video-title">See it in 20 seconds.</h2>
+          <p>
+            A file changes, Mnemolith flags the memory it made wrong, and Mender
+            drafts the fix. One click and your AI tools have the new fact.
+          </p>
+        </div>
+        <figure class="dashboard-window">
+          <figcaption class="dashboard-window-bar">
+            <span>Mender demo</span><span>23 seconds, no sound</span>
+          </figcaption>
+          <video
+            class="demo-video"
+            src="assets/mender-demo.mp4"
+            poster="assets/mender-demo-poster.jpg"
+            width="1920"
+            height="1080"
+            autoplay
+            muted
+            loop
+            playsinline
+            controls
+            preload="metadata"
+            aria-label="Demo: docker-compose.yml switches from postgres:16 to mysql:8. In the Mnemolith dashboard, the memory 'The database is Postgres' is flagged with a fix drafted by Mender's rules, 'The database is MySQL'. Approving it replaces the old memory. A second stale memory shows a fix drafted by Claude Code. At the end there's nothing left to decide."
+          ></video>
+        </figure>
+      </section>
+
       <!-- How it works -->
       <section aria-labelledby="how-title" class="section wrap mender-how" id="how">
         <div class="section-lead">
