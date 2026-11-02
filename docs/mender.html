@@ -296,7 +296,7 @@
         <div class="safety-list">
           <div class="safety-row">
             <h3>No silent rewrites</h3>
-            <p>Drafts wait in the dashboard until you approve them. Dismissing one changes nothing.</p>
+            <p>Drafts wait in the dashboard until you approve them. Dismissing one changes nothing, and any fix you approved can be reverted later.</p>
           </div>
           <div class="safety-row">
             <h3>Stale-draft guard</h3>
@@ -455,6 +455,16 @@
               </p>
             </details>
             <details class="faq-item">
+              <summary>Can I take back a fix I approved?</summary>
+              <p>
+                Yes, any time. Right after approving there&rsquo;s an Undo. Later,
+                open the memory in the dashboard and click <strong>Revert this
+                fix</strong>: the old memory comes back for you to decide, and Mender
+                won&rsquo;t suggest the same fix again unless the files change. From
+                a terminal: <code>mnemolith mender revert m7</code>.
+              </p>
+            </details>
+            <details class="faq-item">
               <summary>What if a draft is wrong?</summary>
               <p>
                 Edit it before approving, or dismiss it. If you change a file again
@@ -476,7 +486,7 @@
           ><a href="install.html#contact">Contact</a
           ><a href="https://github.com/anishchugh05/mnemolith">GitHub</a
           ><a href="https://pypi.org/project/mnemolith/">PyPI</a
-          ><span>Mnemolith v0.3.1</span>
+          ><span>Mnemolith v0.3.2</span>
         </div>
       </footer>
     </div>

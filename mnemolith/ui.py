@@ -152,8 +152,11 @@ def api_projects(_q, _body) -> dict:
         repo = repos.get(name)
         p["repo"] = repo if repo and Path(repo).is_dir() else None
         p["github"] = repo_tools.github_remote(Path(p["repo"])) if p["repo"] else None
+    on = mender.enabled()
+    for name, p in projects.items():
+        p["fixes"] = mender.waiting(name) if on and p["counts"]["stale"] else 0
     order = sorted(projects.values(), key=lambda p: (-p["counts"]["stale"], p["name"].lower()))
-    return {"projects": order, "version": __version__}
+    return {"projects": order, "version": __version__, "mender": on}
 
 
 def api_discover(_q, _body) -> dict:
@@ -263,6 +266,10 @@ def api_memories(q, _body) -> dict:
         items.sort(key=lambda m: -m["created_at"])
     if status in ("stale", "retired"):  # split the engine's one "stale" into its two meanings
         items = [m for m in items if m.get("retired") == (status == "retired")]
+    fixed = mender.applied(project)
+    for m in items:
+        if m["id"] in fixed and m["status"] == "active":
+            m["fixed"] = True
     return {"memories": items}
 
 
@@ -294,7 +301,7 @@ def api_attention(q, _body) -> dict:
                               "by": mender.by_label(d.get("by", "")), "rules": d.get("by") == "rules",
                               "created_at": d.get("created_at"), "drifted": bool(repo) and mender.drifted(d, repo)}
             elif d:
-                m["draft_dismissed"] = True
+                m["draft_dismissed"] = "reverted" if d.get("reverted") else True
     return {"stale": stale, "conflicts": conflicts(project), "checked_files": repo is not None,
             "repo": str(repo) if repo else None, "just_went_stale": len(just_went_stale), "mender": on}
 
@@ -335,6 +342,14 @@ def api_mender_undismiss(_q, body) -> dict:
         raise ApiError(e.status, str(e))
 
 
+def api_mender_revert(_q, body) -> dict:
+    project, memory_id, repo = _draft_target(body)
+    try:
+        return mender.revert(project, memory_id, repo)
+    except mender.Refused as e:
+        raise ApiError(e.status, str(e))
+
+
 def api_settings(_q, _body) -> dict:
     return {"mender": mender.enabled(), "mender_forced": bool(os.environ.get("MNEMOLITH_MENDER"))}
 
@@ -352,7 +367,8 @@ def api_memory(q, _body) -> dict:
     if why is None:
         raise ApiError(404, "No memory with that id.")
     d = _pairs(why)
-    return {"id": d["id"], "text": d["text"], "project": d["project"], "status": d["status"],
+    return {"fix": mender.fix_info(d["project"], d["id"]),
+            "id": d["id"], "text": d["text"], "project": d["project"], "status": d["status"],
             "source": d["source"], "session": d["session"], "created_at": int(d["created_at"]),
             "files": _files(d["files"]),
             "history": [{"at": int(t), "event": e, "details": det} for t, e, det in d["history"]],
@@ -502,6 +518,7 @@ ROUTES = {
     ("POST", "/api/mender/approve"): api_mender_approve,
     ("POST", "/api/mender/dismiss"): api_mender_dismiss,
     ("POST", "/api/mender/undismiss"): api_mender_undismiss,
+    ("POST", "/api/mender/revert"): api_mender_revert,
     ("POST", "/api/undo"): api_undo,
     ("POST", "/api/projects/unremove"): api_unremove,
     ("GET", "/api/settings"): api_settings,

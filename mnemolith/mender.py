@@ -570,11 +570,14 @@ def approve(project: str, memory_id: str, root: Optional[Path], text: Optional[s
                            "Reload to get a fresh draft.")
     files = [f for f in draft.get("files", []) if (root / f).is_file()]
     who = by_label(draft.get("by", ""))
+    before = {"old_id": memory_id, "old_reason": server.status_reason(memory_id), "old_files": memory.get("files", ""),
+              "by": draft.get("by", ""), "draft": draft}
     if draft["kind"] == "confirm" and text is None:
         server.run("MEM.FILES", memory_id, server.link_files(files, root) if files else "",
                    "REASON", f"confirmed still true (suggested by {who})")
         server.run("MEM.STATUS", memory_id, "active", "REASON", f"confirmed still true (suggested by {who})")
         drop_draft(project, memory_id)
+        _record(project, memory_id, dict(before, kind="confirm"))
         return {"ok": True, "message": f"{memory_id} confirmed still true."}
     new_text = " ".join((text if text is not None else draft["text"]).split())
     if not new_text:
@@ -586,6 +589,7 @@ def approve(project: str, memory_id: str, root: Optional[Path], text: Optional[s
                    "REASON", "confirmed still true")
         server.run("MEM.STATUS", memory_id, "active", "REASON", "confirmed still true")
         drop_draft(project, memory_id)
+        _record(project, memory_id, dict(before, kind="confirm"))
         return {"ok": True, "message": f"{memory_id} confirmed still true."}
     new_id, _outcome, _related = server.add_memory(project, new_text, server.link_files(files, root) if files else "",
                                                    source="mender")
@@ -596,7 +600,90 @@ def approve(project: str, memory_id: str, root: Optional[Path], text: Optional[s
         how = f"drafted by {who}" + (", edited" if edited else "") + ", approved in the dashboard"
         server.run("MEM.STATUS", memory_id, "superseded", "REASON", f'replaced by {new_id}: "{new_text}" ({how})')
     drop_draft(project, memory_id)
+    _record(project, new_id, dict(before, kind="replace" if new_id != memory_id else "confirm", new_id=new_id))
     return {"ok": True, "new_id": new_id, "message": f"{memory_id} replaced by {new_id}. Your AI tools will use the new fact."}
+
+
+# ---------- reverting an approved fix, any time later ----------
+
+APPLIED_KEY = "mnemolith:mender-applied:"  # mnemolith:mender-applied:<project> -> JSON {memory id now in use: record}
+MAX_APPLIED = 300
+
+
+def applied(project: str) -> Dict[str, dict]:
+    raw = server.db().get(APPLIED_KEY + project)
+    try:
+        data = json.loads(raw) if raw else {}
+        return data if isinstance(data, dict) else {}
+    except ValueError:
+        return {}
+
+
+def _record(project: str, memory_id: str, record: dict) -> None:
+    """Remembers what an approval changed, so it can be reverted from the memory's details later."""
+    records = applied(project)
+    record["at"] = int(time.time() * 1000)
+    records[memory_id] = record
+    if len(records) > MAX_APPLIED:
+        for old in sorted(records, key=lambda k: records[k].get("at", 0))[:len(records) - MAX_APPLIED]:
+            del records[old]
+    server.db().set(APPLIED_KEY + project, json.dumps(records))
+
+
+def _forget(project: str, memory_id: str) -> None:
+    records = applied(project)
+    if records.pop(memory_id, None) is not None:
+        server.db().set(APPLIED_KEY + project, json.dumps(records) if records else "")
+
+
+def fix_info(project: str, memory_id: str) -> Optional[dict]:
+    """How Mender fixed this memory, if it did and that can still be reverted."""
+    record = applied(project).get(memory_id)
+    if not record:
+        return None
+    current = get_memory(memory_id)
+    if current is None or current.get("status") != "active":
+        return None  # changed again since: reverting would undo more than this fix
+    return {"kind": record["kind"], "old_id": record["old_id"], "by": by_label(record.get("by", "")),
+            "at": record.get("at")}
+
+
+def revert(project: str, memory_id: str, root: Optional[Path]) -> dict:
+    """Takes back a fix you approved: the new memory is retired, and the old one goes back to waiting for a decision,
+    linked to the files it had. Mender won't suggest the same fix again until the files change."""
+    record = applied(project).get(memory_id)
+    if not record or fix_info(project, memory_id) is None:
+        raise Refused(404, f"{memory_id} isn't a fix Mender made that can still be reverted.")
+    old_id = record["old_id"]
+    old = get_memory(old_id)
+    if old is None:
+        _forget(project, memory_id)
+        raise Refused(404, f"{old_id} no longer exists.")
+    if record["kind"] == "replace":
+        server.run("MEM.STATUS", memory_id, "stale", "REASON", f"fix reverted in the dashboard; {old_id} is back")
+    if record.get("old_files") is not None and record["old_files"] != old.get("files", ""):
+        server.run("MEM.FILES", old_id, record["old_files"], "REASON", "fix reverted")
+    reason = record.get("old_reason") or ""
+    if not reason.endswith(server.FILE_CHANGE):
+        reason = "a linked file changed since this was saved"
+    server.run("MEM.STATUS", old_id, "stale", "REASON", reason)
+    _forget(project, memory_id)
+    # Don't suggest the fix that was just reverted again, until the files change.
+    drafts = load_drafts(project)
+    hashes = (record.get("draft") or {}).get("file_hashes") or {}
+    if root is not None and hashes:
+        hashes = server.content_hashes(list(hashes), root)
+    drafts[old_id] = {"memory_id": old_id, "dismissed": True, "reverted": True, "file_hashes": hashes,
+                      "previous": record.get("draft")}
+    save_drafts(project, drafts)
+    what = f"{memory_id} retired and {old_id} is back" if record["kind"] == "replace" else f"{old_id} is back"
+    return {"ok": True, "old_id": old_id,
+            "message": f"Fix reverted: {what}, waiting for your decision. Mender won't suggest that fix again unless the files change."}
+
+
+def waiting(project: str) -> int:
+    """How many drafted fixes are waiting for approval in this project (as of the last check)."""
+    return sum(1 for d in load_drafts(project).values() if not d.get("dismissed"))
 
 
 def dismiss(project: str, memory_id: str, root: Optional[Path]) -> dict:

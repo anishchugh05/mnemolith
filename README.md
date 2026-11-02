@@ -185,6 +185,11 @@ optional part of Mnemolith, drafts that for you. `mnemolith setup` asks whether 
   based on. Approve it, edit it, or dismiss it. Approving is refused if the files changed again after the draft was
   made (it would be based on old code), and if the memory was already settled some other way.
 
+Changed your mind? Approving shows an Undo, and any fix can be reverted later from the memory's details in the
+dashboard (**Revert this fix**) or with `mnemolith mender revert m7`: the old memory comes back for you to decide,
+and Mender won't suggest the same fix again unless the files change. `mnemolith status` and your AI tool tell you
+when fixes are waiting.
+
 `mnemolith mend` drafts fixes for the repo you're in and lists them.
 
 ## Moving from Aether Cache
@@ -427,7 +432,7 @@ crash_test.py                kill -9 crash-safety test
 Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, and `server.json`, commit, then:
 
 ```sh
-git tag v0.3.1 && git push --tags
+git tag v0.3.2 && git push --tags
 ```
 
 The [release workflow](.github/workflows/release.yml) checks the versions match, builds and smoke-tests the package,

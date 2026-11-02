@@ -417,7 +417,13 @@ def recall(query: str, limit: int = 5) -> str:
         lines += ["", "These memories were just retired because files they depend on changed. Mender drafts fixes "
                       "for the user to approve: call list_stale to see what changed, and propose_fix for any without "
                       "a draft:"] + stale
-    elif stale:
+    if MENDER_ON:
+        waiting = _waiting_fixes()
+        if waiting:
+            lines += ["", f"Mender has {waiting} drafted {'fix' if waiting == 1 else 'fixes'} for stale memories waiting "
+                          f"for the user's approval. Tell the user they can review {'it' if waiting == 1 else 'them'} "
+                          f"with `mnemolith ui`."]
+    if stale and not MENDER_ON:
         lines += ["", "These memories were just retired because files they depend on changed. If one is still "
                       "true, call confirm_memory; if it's wrong, save the corrected fact with remember:"] + stale
     return "\n".join(lines)
@@ -605,6 +611,14 @@ def _refresh_drafts() -> None:
         mender.refresh(project_name(), git_toplevel())
     except Exception:
         pass  # drafting is a convenience; it never gets in the way of recall
+
+
+def _waiting_fixes() -> int:
+    try:
+        from . import mender
+        return mender.waiting(project_name())
+    except Exception:
+        return 0
 
 
 def list_stale() -> str:

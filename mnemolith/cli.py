@@ -131,6 +131,21 @@ def _setup_mender(args) -> None:
 
 def cmd_mender(args) -> int:
     from . import mender
+    if args.action == "revert":
+        from .server import EngineDown, git_toplevel, project_name, store_down
+        if not args.id:
+            print("Which fix? Pass the id of the memory Mender saved, e.g. `mnemolith mender revert m7` "
+                  "(see `mnemolith list`).")
+            return 1
+        try:
+            print(mender.revert(project_name(), args.id, git_toplevel())["message"])
+        except mender.Refused as e:
+            print(e)
+            return 1
+        except EngineDown as e:
+            print(store_down(e))
+            return 1
+        return 0
     if args.action == "status":
         on = config.mender_enabled()
         print(f"Mender is {'on' if on else 'off'}." + (
@@ -222,8 +237,21 @@ def cmd_status(args) -> int:
         print(f"This project ({project}): {summary or 'no memories yet'}")
     connected = [t for t in connect.TOOLS if connect.CHECKS[t]()]
     print("Connected tools: " + (", ".join(connected) if connected else "none (run `mnemolith connect`)"))
-    print("Mender: " + ("on (drafted fixes for stale memories)" if config.mender_enabled()
-                        else "off (turn on with `mnemolith mender on`)"))
+    if config.mender_enabled():
+        waiting = 0
+        if state == "ours":
+            from . import mender
+            from .server import check_staleness, git_toplevel
+            try:  # check the files first, so this counts drafts for what's stale right now
+                check_staleness()
+                mender.refresh(project, git_toplevel())
+            except Exception:
+                pass
+            waiting = mender.waiting(project)
+        print("Mender: on" + (f", {waiting} {'fix' if waiting == 1 else 'fixes'} waiting for your approval "
+                              f"(`mnemolith ui`)" if waiting else " (drafted fixes for stale memories)"))
+    else:
+        print("Mender: off (turn on with `mnemolith mender on`)")
     return 0
 
 
@@ -555,8 +583,9 @@ def main(argv=None) -> None:
     sub.choices["explain"].set_defaults(func=lambda a: _tool_output("explain_memory", a.id))
     sub.add_parser("sync", help="write current memories into AGENTS.md / CLAUDE.md").set_defaults(
         func=lambda a: _tool_output("sync_to_files"))
-    p = sub.add_parser("mender", help="turn Mender (drafted fixes for stale memories) on or off")
-    p.add_argument("action", nargs="?", default="status", choices=["on", "off", "status"])
+    p = sub.add_parser("mender", help="turn Mender (drafted fixes for stale memories) on or off, or revert a fix")
+    p.add_argument("action", nargs="?", default="status", choices=["on", "off", "status", "revert"])
+    p.add_argument("id", nargs="?", help="with revert: the memory a fix saved (e.g. m7)")
     p.set_defaults(func=cmd_mender)
     sub.add_parser("mend", help="draft fixes for this project's stale memories now (Mender)").set_defaults(func=cmd_mend)
     sub.add_parser("check", help="retire memories whose linked files changed").set_defaults(

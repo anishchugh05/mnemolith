@@ -93,6 +93,11 @@ nav.rail {
 .project .name { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project .meta { display: block; font-size: var(--t-xs); color: var(--rail-2); }
 .project .meta .hot { color: var(--rail-stale); }
+.project .meta .fixes { color: #3BBF8E; }
+.fixed-tag { color: var(--fresh); font-weight: 500; }
+.fix-note { margin: 0 0 18px; padding: 12px 14px; border-radius: 6px; background: var(--fresh-tint); font-size: var(--t-sm); corner-shape: squircle; }
+.fix-note p { margin: 0 0 10px; color: var(--ink-2); }
+.fix-note strong { color: var(--fresh); font-weight: 600; }
 .project[aria-current="true"] { background: var(--rail-active); }
 .engine { display: flex; align-items: center; gap: var(--s2); padding: 14px 20px; font-size: var(--t-xs); color: var(--rail-2); border-top: 1px solid var(--rail-active); }
 .engine .dot { width: 7px; height: 7px; border-radius: 50%; background: #3BBF8E; flex-shrink: 0; }
@@ -664,7 +669,8 @@ async function refreshAll() {
   await loadProjects();
   renderProjects(); renderHead();
   await loadAttention();
-  if (state.attention && state.attention.just_went_stale) { await loadProjects(); renderProjects(); }
+  // counts in the sidebar change when files went stale or Mender drafted fixes during that check
+  if (state.attention && (state.attention.just_went_stale || state.attention.mender)) { await loadProjects(); renderProjects(); }
   renderAttention();
   await loadMemories();
   if (state.selected) {
@@ -934,7 +940,8 @@ function renderProjects() {
                                      onclick: () => selectProject(p.name), title: p.name },
       h("span", { class: "name" }, p.name),
       h("span", { class: "meta" }, plural(total, "memory", "memories"),
-        p.counts.stale ? [", ", h("span", { class: "hot" }, `${p.counts.stale} stale`)] : null)));
+        p.counts.stale ? [", ", h("span", { class: "hot" }, `${p.counts.stale} stale`)] : null,
+        p.fixes ? [", ", h("span", { class: "fixes" }, `${p.fixes} ${p.fixes === 1 ? "fix" : "fixes"} ready`)] : null)));
   }));
   const heading = document.getElementById("projects-h");
   if (heading) heading.hidden = !state.projects.length;
@@ -1244,7 +1251,9 @@ function renderAttention() {
         h("p", { class: "why" }, m.reason ? pathNodes(`Went stale: ${m.reason}.`) : "Marked stale."),
         diff(m.files),
         fix,
-        a.mender && !m.draft ? h("p", { class: "no-draft" }, m.draft_dismissed
+        a.mender && !m.draft ? h("p", { class: "no-draft" }, m.draft_dismissed === "reverted"
+          ? "You reverted Mender’s fix for this one, so it’s back for you to decide."
+          : m.draft_dismissed
           ? "You dismissed Mender’s draft. Decide it yourself, or ask your AI tool to look again."
           : "No draft yet: this change needs judgment. Ask your AI tool to “fix the stale memories”, or decide it yourself.") : null,
         h("p", { class: "meta" }, `Saved by ${m.source} `, time(m.created_at), " as ", h("span", { class: "mono" }, m.id)),
@@ -1332,11 +1341,33 @@ function renderList() {
         h("span", { class: "id mono" }, m.id),
         h("span", {},
           h("span", { class: "text" }, richText(m.text)),
-          m.files.length ? h("span", { class: "files" }, fingerprints(m.files)) : null),
+          m.files.length || m.fixed ? h("span", { class: "files" }, fingerprints(m.files),
+            m.fixed ? h("span", { class: "fixed-tag" }, "Fixed by Mender") : null) : null),
         h("span", { class: "side" },
           h("span", { class: `word ${shown(m)}` }, STATE_WORD[shown(m)]), h("br"),
           m.score !== undefined ? h("span", { class: "mono", title: "How close in meaning to your search" }, m.score.toFixed(2))
                                 : time(m.created_at))))))));
+}
+
+// A memory Mender fixed (and you approved) can be reverted later, for whatever reason: the old memory comes back to
+// Needs a decision, and the same fix isn't suggested again unless the files change.
+function fixPanel(d) {
+  const f = d.fix;
+  const revert = h("button", { class: "btn", type: "button", onclick: async () => {
+    revert.disabled = true;
+    try {
+      const r = await api("/api/mender/revert", { id: d.id });
+      notify(r.message);
+      closeDetail();
+      await refreshAll();
+    } catch (e) { notify(e.message); revert.disabled = false; }
+  } }, "Revert this fix");
+  return h("div", { class: "fix-note" },
+    h("p", {}, h("strong", {}, "Fixed by Mender. "),
+      f.kind === "replace" ? ["Suggested by ", f.by, ", approved ", f.at ? time(f.at) : "earlier", ". It replaced ",
+                              h("span", { class: "mono" }, f.old_id), "."]
+                           : ["Confirmed still true, as suggested by ", f.by, ", ", f.at ? time(f.at) : "earlier", "."]),
+    revert);
 }
 
 function renderDetail() {
@@ -1361,6 +1392,7 @@ function renderDetail() {
       h("dt", {}, "Saved by"), h("dd", {}, d.source, d.session ? h("span", { class: "muted" }, ", session ", h("span", { class: "mono" }, d.session)) : null),
       h("dt", {}, "Saved"), h("dd", {}, exact(d.created_at)),
       h("dt", {}, "Linked files"), h("dd", {}, d.files.length ? h("span", { class: "files" }, fingerprints(d.files)) : h("span", { class: "muted" }, "None"))),
+    d.fix ? fixPanel(d) : null,
     actions,
     h("h3", {}, "History"),
     h("ol", { class: "timeline" }, d.history.map((e) => {
