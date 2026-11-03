@@ -1,0 +1,255 @@
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link
+      href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Cpath d=%27M16 2 29 9 16 16 3 9 16 2Zm-13 14 13 7 13-7M3 23l13 7 13-7%27 fill=%27none%27 stroke=%27%2334594f%27 stroke-width=%272.3%27/%3E%3C/svg%3E"
+      rel="icon"
+    />
+    <meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport" />
+    <meta content="light dark" name="color-scheme" />
+    <meta
+      content="How Mnemolith handles your data: memories stay on your computer, nothing is sent to us, and the website counts visits without cookies."
+      name="description"
+    />
+    <title>Privacy — Mnemolith</title>
+    <script>
+      try {
+        const t = localStorage.getItem("mnemolith-theme");
+        if (t === "light" || t === "dark")
+          document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+    <link href="assets/site.css?v=11" rel="stylesheet" />
+    <link
+      as="font"
+      crossorigin=""
+      href="assets/plex-sans.woff2"
+      rel="preload"
+      type="font/woff2"
+    />
+    <meta property="og:title" content="Privacy — Mnemolith" />
+    <meta
+      property="og:description"
+      content="How Mnemolith handles your data: memories stay on your computer, nothing is sent to us, and the website counts visits without cookies."
+    />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:url"
+      content="https://mnemolith.dev/privacy.html"
+    />
+    <meta
+      property="og:image"
+      content="https://mnemolith.dev/assets/og-image.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Mnemolith. Memory that stays true to your code. A dashboard card shows a stale memory and the file versions behind it."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Privacy — Mnemolith" />
+    <meta
+      name="twitter:description"
+      content="How Mnemolith handles your data: memories stay on your computer, nothing is sent to us, and the website counts visits without cookies."
+    />
+    <meta
+      name="twitter:image"
+      content="https://mnemolith.dev/assets/og-image.png"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="Mnemolith. Memory that stays true to your code. A stale-memory review card."
+    />
+    <!-- Privacy-friendly visit counts (no cookies): https://aethercache.goatcounter.com -->
+    <script async data-goatcounter="https://aethercache.goatcounter.com/count" data-goatcounter-settings='{"no_onload": true}' src="https://gc.zgo.at/count.js"></script>
+    <script>
+      // Count a visit only when the page is actually shown, not when it's prerendered in case you click.
+      (function () {
+        function count() {
+          if (window.goatcounter && window.goatcounter.count) window.goatcounter.count({ path: location.pathname + location.search });
+          else setTimeout(count, 300);
+        }
+        function shown() { if (document.prerendering) document.addEventListener("prerenderingchange", count, { once: true }); else count(); }
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", shown); else shown();
+      })();
+    </script>
+    <!-- Pages you're likely to open next load in the background when you hover or start a click on their link
+         (same site only; downloads like install.sh are left out). -->
+    <script type="speculationrules">
+      {
+        "prerender": [
+          {
+            "where": {
+              "and": [
+                { "href_matches": "/*" },
+                { "not": { "href_matches": "/*.sh" } },
+                { "not": { "href_matches": "/*.ps1" } },
+                { "not": { "href_matches": "/assets/*" } },
+                { "not": { "selector_matches": "[download], [target]" } }
+              ]
+            },
+            "eagerness": "moderate"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body class="page-about">
+    <a class="skip" href="#main">Skip to content</a>
+    <div class="wrap">
+      <header class="masthead">
+        <a aria-label="Mnemolith home" class="brand" href="index.html"
+          ><svg
+            aria-hidden="true"
+            class="brand-mark"
+            fill="none"
+            viewBox="0 0 30 32"
+          >
+            <path
+              d="M15 2 28 9 15 16 2 9 15 2Z"
+              stroke="currentColor"
+              stroke-width="2"
+            ></path>
+            <path
+              d="m2 16 13 7 13-7M2 23l13 7 13-7"
+              stroke="currentColor"
+              stroke-width="2"
+            ></path></svg
+          >Mnemolith</a
+        >
+        <nav aria-label="Main navigation">
+          <a href="index.html">Home</a
+          ><a href="how-it-works.html">How it works</a
+          ><a href="install.html">Install</a
+          ><a href="mender.html">Mender</a
+          ><a href="about.html">About</a>
+        </nav>
+        <button
+          aria-label="Switch color theme"
+          class="theme"
+          id="theme-toggle"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            fill="none"
+            height="17"
+            viewBox="0 0 20 20"
+            width="17"
+          >
+            <path
+              d="M16.7 12.6A7 7 0 0 1 7.4 3.3 7 7 0 1 0 16.7 12.6Z"
+              stroke="currentColor"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+            ></path>
+          </svg>
+        </button>
+      </header>
+    </div>
+    <main id="main" tabindex="-1">
+      <header class="page-intro wrap">
+        <h1>Your memories stay on your computer.</h1>
+        <div>
+          <p>
+            Mnemolith has no server and no account. This page covers the
+            Mnemolith package, the Claude Code plugin, and this website.
+            Last updated November 3, 2026.
+          </p>
+        </div>
+      </header>
+      <section aria-labelledby="stored-title" class="about-story wrap">
+        <h2 id="stored-title">What Mnemolith stores</h2>
+        <div>
+          <p>
+            The facts your AI tools save about your project, the names of the
+            files each fact depends on, and fingerprints of those files. They
+            live in <code>~/.mnemolith</code> on your computer, along with
+            Mnemolith&rsquo;s settings and its downloaded model.
+          </p>
+          <p>
+            Mnemolith isn&rsquo;t meant for personal data. It stores what you
+            or your AI choose to remember about code. Delete
+            <code>~/.mnemolith</code>, or run <code>mnemolith uninstall</code>,
+            and it&rsquo;s gone.
+          </p>
+        </div>
+      </section>
+      <section aria-labelledby="sent-title" class="about-story wrap">
+        <h2 id="sent-title">What leaves your computer</h2>
+        <div>
+          <p>
+            None of your memories, code, prompts or conversations. Mnemolith
+            has no telemetry and never contacts a Mnemolith server, because
+            there isn&rsquo;t one.
+          </p>
+          <p>
+            It only downloads things: the package and its dependencies from
+            PyPI, a small embedding model from Hugging Face the first time
+            it&rsquo;s needed, and, if your computer has no Java 11 or newer, a
+            Java runtime from Adoptium. Those services see an ordinary download
+            request, under their own privacy policies.
+          </p>
+          <p>
+            The engine and the dashboard listen only on
+            <code>127.0.0.1</code>, so other computers can&rsquo;t reach them.
+          </p>
+        </div>
+      </section>
+      <section aria-labelledby="ai-title" class="about-story wrap">
+        <h2 id="ai-title">Your AI tool</h2>
+        <div>
+          <p>
+            Memories that Mnemolith recalls are passed to the AI tool you use,
+            like Claude Code, Cursor or Codex, as part of your session. What
+            that tool does with them is covered by its own privacy policy.
+          </p>
+        </div>
+      </section>
+      <section aria-labelledby="site-title" class="about-story wrap">
+        <h2 id="site-title">This website</h2>
+        <div>
+          <p>
+            mnemolith.dev counts page views with GoatCounter, which uses no
+            cookies and doesn&rsquo;t track you across sites. It records the
+            page, the referring site, your browser and screen size, and your
+            country, never your IP address. The site is hosted on GitHub Pages.
+          </p>
+          <p>
+            Questions? <a href="install.html#contact">Get in touch</a> or open
+            an issue on
+            <a href="https://github.com/anishchugh05/mnemolith/issues">GitHub</a>.
+          </p>
+        </div>
+      </section>
+    </main>
+    <div class="wrap">
+      <footer class="footer">
+        <span>© 2026 Anish Chugh</span>
+        <div class="footer-links">
+          <a href="install.html#faq">FAQ</a
+          ><a href="https://github.com/anishchugh05/mnemolith/blob/main/LICENSE"
+            >License</a
+          ><a href="privacy.html">Privacy</a
+          ><a href="install.html#contact">Contact</a
+          ><a
+            href="https://github.com/anishchugh05/mnemolith"
+            >GitHub</a
+          ><a href="https://pypi.org/project/mnemolith/">PyPI</a
+          ><a href="https://glama.ai/mcp/servers/anishchugh05/mnemolith">Glama</a
+          ><span>Mnemolith v0.3.2</span>
+        </div>
+      </footer>
+    </div>
+    <div
+      aria-live="polite"
+      class="sr-only"
+      id="copy-status"
+      role="status"
+    ></div>
+    <script defer="" src="assets/site.js?v=11"></script>
+  </body>
+</html>

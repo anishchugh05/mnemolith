@@ -21,6 +21,7 @@
   ],
   "documentationUrl": "https://mnemolith.dev/how-it-works.html",
   "supportUrl": "https://github.com/anishchugh05/mnemolith/issues",
+  "privacyPolicyUrl": "https://mnemolith.dev/privacy.html",
   "mcpServers": {
     "mnemolith": {
       "command": "uv",
