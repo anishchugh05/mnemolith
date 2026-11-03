@@ -9,7 +9,7 @@ Run this in the background with the Bash tool, then tell the user the address it
 (usually http://127.0.0.1:7381):
 
 ```sh
-uvx mnemolith==0.3.2 ui
+uv run --locked --quiet --project "${CLAUDE_PLUGIN_ROOT}" mnemolith ui
 ```
 
 The dashboard runs only on this computer. From it the user can browse memories by project, see which ones went

@@ -32,7 +32,7 @@ Or in one step on Claude Code 2.1.275 or later:
 ## Requirements
 
 [uv](https://docs.astral.sh/uv/) must be installed, because the server starts with
-`uvx mnemolith==0.3.2 serve`. Nothing else: no API key, no account, no `.env` file. Java and the embedding
+`uv run --locked`, using the exact versions pinned in this folder's `uv.lock`. Nothing else: no API key, no account, no `.env` file. Java and the embedding
 model are fetched automatically the first time (see below), so the first start can take a minute.
 
 Works in Claude Code, and in Cowork when the session runs on your computer. It isn't available in claude.ai
@@ -42,7 +42,8 @@ chat on the web or phone, because those can't start a local server.
 
 Everything runs on your computer and your memories never leave it.
 
-- `uvx` downloads the `mnemolith` package (pinned to an exact version) and its Python dependencies from PyPI.
+- `uv` installs the `mnemolith` package and its Python dependencies from PyPI, at the exact versions and hashes
+  in `uv.lock`, into a private environment.
 - The server starts Mnemolith's storage engine, a small Java program listening only on `127.0.0.1:7380`. If
   your computer has no Java 11 or newer, it downloads a private copy of the Temurin runtime from
   `api.adoptium.net` into `~/.mnemolith`.

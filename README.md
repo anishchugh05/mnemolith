@@ -440,8 +440,8 @@ crash_test.py                kill -9 crash-safety test
 
 ## Releasing
 
-Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, `server.json`, and the plugin (`plugin/.claude-plugin/plugin.json`
-and every `mnemolith==` pin under `plugin/`), commit, then:
+Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, `server.json`, and the plugin (`plugin/.claude-plugin/plugin.json`,
+`plugin/pyproject.toml`, then `uv lock` in `plugin/`), commit, then:
 
 ```sh
 git tag v0.3.2 && git push --tags

@@ -23,14 +23,16 @@
   "supportUrl": "https://github.com/anishchugh05/mnemolith/issues",
   "mcpServers": {
     "mnemolith": {
-      "command": "uvx",
+      "command": "uv",
       "args": [
-        "mnemolith==0.3.2",
+        "run",
+        "--locked",
+        "--quiet",
+        "--project",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "mnemolith",
         "serve"
-      ],
-      "env": {
-        "MNEMOLITH_REPO": "${CLAUDE_PROJECT_DIR}"
-      }
+      ]
     }
   }
 }

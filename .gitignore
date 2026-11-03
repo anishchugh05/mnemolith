@@ -20,3 +20,6 @@ dist/
 PRODUCT.md
 DESIGN.md
 .DS_Store
+
+# the plugin's local environment, created by `uv run`
+plugin/.venv/

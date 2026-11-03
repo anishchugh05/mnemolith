@@ -42,6 +42,9 @@ jobs:
 
       - uses: astral-sh/setup-uv@v7
 
+      - name: Check the plugin's lockfile matches its pinned version
+        run: cd plugin && uv lock --check
+
       - name: Build
         run: |
           uv build
