@@ -10,7 +10,27 @@
   "homepage": "https://mnemolith.dev/",
   "repository": "https://github.com/anishchugh05/mnemolith",
   "license": "MIT",
-  "keywords": ["memory", "mcp", "context", "stale", "cursor", "codex", "project-knowledge"],
+  "keywords": [
+    "memory",
+    "mcp",
+    "context",
+    "stale",
+    "cursor",
+    "codex",
+    "project-knowledge"
+  ],
   "documentationUrl": "https://mnemolith.dev/how-it-works.html",
-  "supportUrl": "https://github.com/anishchugh05/mnemolith/issues"
+  "supportUrl": "https://github.com/anishchugh05/mnemolith/issues",
+  "mcpServers": {
+    "mnemolith": {
+      "command": "uvx",
+      "args": [
+        "mnemolith==0.3.2",
+        "serve"
+      ],
+      "env": {
+        "MNEMOLITH_REPO": "${CLAUDE_PROJECT_DIR}"
+      }
+    }
+  }
 }
