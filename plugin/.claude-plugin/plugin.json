@@ -1,0 +1,16 @@
+{
+  "name": "mnemolith",
+  "displayName": "Mnemolith",
+  "version": "0.3.2",
+  "description": "Shared project memory for Claude Code, Cursor and Codex. Memories are tied to the files they depend on and flagged when those files change, so Claude never works from stale notes.",
+  "author": {
+    "name": "Anish Chugh",
+    "url": "https://github.com/anishchugh05"
+  },
+  "homepage": "https://mnemolith.dev/",
+  "repository": "https://github.com/anishchugh05/mnemolith",
+  "license": "MIT",
+  "keywords": ["memory", "mcp", "context", "stale", "cursor", "codex", "project-knowledge"],
+  "documentationUrl": "https://mnemolith.dev/how-it-works.html",
+  "supportUrl": "https://github.com/anishchugh05/mnemolith/issues"
+}

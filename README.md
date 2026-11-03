@@ -136,6 +136,17 @@ repo and try:
 
 Then start a new session and ask how to run the tests.
 
+Only use Claude Code? You can install Mnemolith as a plugin instead, with no setup step (needs
+[uv](https://docs.astral.sh/uv/)):
+
+```
+/plugin marketplace add anishchugh05/mnemolith
+/plugin install mnemolith@mnemolith
+```
+
+The plugin ([plugin/](plugin)) runs the same server and adds a `/mnemolith:dashboard` command. Use the plugin or
+`setup`, not both, or Claude sees the tools twice.
+
 The engine runs on Java 11+. If you have it, it's used. If you don't, Mnemolith downloads a private copy (about
 50 MB) into `~/.mnemolith/java`, checks it against its published checksum, and uses it only for Mnemolith;
 nothing is installed system-wide, and `mnemolith uninstall` removes it.
@@ -429,7 +440,8 @@ crash_test.py                kill -9 crash-safety test
 
 ## Releasing
 
-Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, and `server.json`, commit, then:
+Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, `server.json`, and the plugin (`plugin/.claude-plugin/plugin.json`
+and every `mnemolith==` pin under `plugin/`), commit, then:
 
 ```sh
 git tag v0.3.2 && git push --tags

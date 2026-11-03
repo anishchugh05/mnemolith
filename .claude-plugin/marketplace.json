@@ -1,0 +1,16 @@
+{
+  "name": "mnemolith",
+  "description": "Mnemolith: shared project memory for Claude Code that stays true to your code.",
+  "owner": {
+    "name": "Anish Chugh",
+    "url": "https://github.com/anishchugh05"
+  },
+  "plugins": [
+    {
+      "name": "mnemolith",
+      "source": "./plugin",
+      "description": "Shared project memory tied to your files, flagged when they change.",
+      "category": "productivity"
+    }
+  ]
+}
