@@ -40,8 +40,9 @@ INSTRUCTIONS = (
 )
 MENDER_INSTRUCTIONS = (
     "\n- Mender is on: memories whose files changed get a drafted fix that the user approves in the dashboard. "
-    "When recall says memories went stale, call list_stale, check the code, and call propose_fix for each one "
-    "without a draft, instead of remember/replace_memory. Nothing changes until the user approves.")
+    "When recall says memories went stale, finish the user's task first; then call list_stale, check the code, "
+    "and call propose_fix for each one without a draft, instead of remember/replace_memory. Nothing changes "
+    "until the user approves.")
 
 
 def instructions(mender_on: bool) -> str:
@@ -357,7 +358,16 @@ def past_versions(project: str, vector: List[str], limit: int = 3) -> List[str]:
 
 # ---------- tools the AI can call ----------
 
-@mcp.tool()
+def core_tool():
+    """For recall and remember, which every task uses: Claude Code otherwise hides MCP tools until the AI looks
+    them up, costing a turn before the first recall. This asks it to load them at the start of the session."""
+    try:
+        return mcp.tool(meta={"anthropic/alwaysLoad": True})
+    except TypeError:  # older mcp 1.x releases have no meta
+        return mcp.tool()
+
+
+@core_tool()
 def remember(fact: str, files: Optional[List[str]] = None) -> str:
     """Save a durable fact about this project so future sessions, in any AI tool, know it.
     Use this, not a built-in memory or notes file, whenever the user asks you to remember something
@@ -393,7 +403,7 @@ def remember(fact: str, files: Optional[List[str]] = None) -> str:
         return store_down(e)
 
 
-@mcp.tool()
+@core_tool()
 def recall(query: str, limit: int = 5) -> str:
     """Search this project's shared memory by meaning. Call it at the start of every task, and whenever
     project-specific knowledge (setup, conventions, past decisions) might matter.
