@@ -22,6 +22,7 @@ instead of quietly misleading the next session. Use its tools instead of any bui
 - Always pass `files=` with the files the fact depends on (for example `["docker-compose.yml"]`). That is what
   lets Mnemolith retire the memory when those files change.
 - One fact per memory, written so it makes sense on its own months later.
+- Don't save what `recall` already showed you.
 - Don't save things that are obvious from the code, or temporary state like the current branch.
 
 ## Fixing memories

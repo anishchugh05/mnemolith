@@ -24,14 +24,9 @@
   "privacyPolicyUrl": "https://mnemolith.dev/privacy.html",
   "mcpServers": {
     "mnemolith": {
-      "command": "uv",
+      "command": "uvx",
       "args": [
-        "run",
-        "--locked",
-        "--quiet",
-        "--project",
-        "${CLAUDE_PLUGIN_ROOT}",
-        "mnemolith",
+        "mnemolith==0.3.3",
         "serve"
       ]
     }

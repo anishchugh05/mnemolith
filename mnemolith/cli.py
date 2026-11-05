@@ -565,7 +565,7 @@ def main(argv=None) -> None:
                    help="turn on Mender (drafted fixes for stale memories) without asking")
     g.add_argument("--no-mender", dest="mender", action="store_false", help="leave Mender off without asking")
     p.set_defaults(func=cmd_setup)
-    p = sub.add_parser("connect", help="connect AI tools: claude-code, cursor, codex")
+    p = sub.add_parser("connect", help="connect AI tools: claude-code, claude-desktop, cursor, codex")
     p.add_argument("tools", nargs="*", metavar="tool",
                    help="which tools to connect (default: every supported tool found)")
     p.add_argument("--print", action="store_true", help="print config for any other MCP tool instead")

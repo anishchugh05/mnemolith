@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://mnemolith.dev/",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "mnemolith",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

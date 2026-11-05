@@ -1,5 +1,5 @@
 # Pins the exact Mnemolith release this plugin runs, plus every dependency (with hashes) in uv.lock.
-# Claude Code starts the server with `uv run --locked`, so nothing outside this lock is installed.
+# Claude Code starts the server with `uvx mnemolith==<version>`; this lock records the exact versions and hashes.
 [project]
 name = "mnemolith-plugin"
 version = "0.3.3"

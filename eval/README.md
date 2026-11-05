@@ -46,4 +46,4 @@ Results and transcripts go to `eval/runs/` (not committed).
 ## Results
 
 The latest full run of round 2 is in [results/2026-11-04-round2.md](results/2026-11-04-round2.md): no memory 9 of 21,
-CLAUDE.md notes 19 of 21, Mnemolith 21 of 21, with Mnemolith using about 50% more tokens than the notes file.
+CLAUDE.md notes 19 of 21, Mnemolith 21 of 21, with Mnemolith costing about 15% more per task than the notes file ($0.14 vs $0.12 at API prices).

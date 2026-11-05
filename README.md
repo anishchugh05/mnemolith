@@ -60,16 +60,16 @@ We tested it. Claude Code did 7 tasks in a sample codebase, 3 times each, in thr
 something only a teammate would know: a past decision, who owns which code, a promise to a partner, a business
 rule. Two need a fact mentioned in an earlier session. An automatic check grades every run.
 
-| Setup | Tasks done right | Across sessions | Avg tokens per task |
+| Setup | Tasks done right | Across sessions | Avg cost per task |
 | --- | --- | --- | --- |
-| No memory | 43% (9 of 21) | 3 of 6 | 101K |
-| CLAUDE.md notes, same facts | 90% (19 of 21) | 4 of 6 | 91K |
-| Mnemolith, same facts | **100% (21 of 21)** | **6 of 6** | 142K |
+| No memory | 43% (9 of 21) | 3 of 6 | $0.12 |
+| CLAUDE.md notes, same facts | 90% (19 of 21) | 4 of 6 | $0.12 |
+| Mnemolith, same facts | **100% (21 of 21)** | **6 of 6** | $0.14 |
 
 Without memory, Claude edited another team's code, changed a frozen partner API and skipped refund approval, every
 time. A CLAUDE.md file held the same facts but missed a database address mentioned in an earlier session 2 times
-out of 3; Mnemolith saved it on its own and used it next session. The cost is about 50% more tokens than a notes
-file, because recalling and keeping memories up to date takes turns. 63 runs on Claude Opus 5.5, November 2026.
+out of 3; Mnemolith saved it on its own and used it next session. The cost is about 15% more per task than a notes
+file, at API prices, because recalling and keeping memories up to date takes a few extra turns. 63 runs on Claude Opus 5.5, November 2026.
 In an earlier round where every fact could also be found in the code, all three setups tied.
 
 Run it yourself (uses your own Claude Code plan; see [eval/](eval) for what each task checks):
@@ -153,8 +153,8 @@ pip install mnemolith        # Python 3.10+
 ```
 
 `setup` starts the engine in the background, downloads the embedding model once (about 90 MB), and connects every
-supported AI tool it finds on your machine: **Claude Code, Cursor, and Codex**. That's it. Open your AI tool in any git
-repo and try:
+supported AI tool it finds on your machine: **Claude Code, Claude Desktop, Cursor, and Codex**. That's it. Open your
+AI tool in any git repo and try:
 
 > Remember that our tests need DOCKER_HOST set. It depends on docker-compose.yml.
 
@@ -194,7 +194,7 @@ the engine only accepts connections from it, and your memories live in `~/.mnemo
 | `mnemolith list` / `recall "query"` / `explain m1` | Look at memories from the terminal |
 | `mnemolith sync` | Writes current memories into `AGENTS.md` / `CLAUDE.md` |
 | `mnemolith mender on` / `off` | Turns [Mender](#mender-drafted-fixes-for-stale-memories) on or off; `mnemolith mend` drafts fixes for this repo now |
-| `mnemolith connect cursor` | Connects one tool (`--print` shows config for any other MCP tool) |
+| `mnemolith connect cursor` | Connects one tool: `claude-code`, `claude-desktop`, `cursor` or `codex` (`--print` shows config for any other MCP tool) |
 | `mnemolith start` / `stop` | Runs or stops the engine (it also starts on its own when a tool needs it) |
 | `mnemolith uninstall` | Disconnects your AI tools, stops the engine, and asks before deleting memories |
 
@@ -240,7 +240,7 @@ Installed some other way? Install `mnemolith` the same way, run `mnemolith setup
 
 | Tool | What it does |
 |---|---|
-| `remember(fact, files?)` | Saves a durable fact, optionally linked to files. Merges near-identical repeats and shows related memories so the AI can decide whether the new fact replaces one. |
+| `remember(fact, files?, replaces?)` | Saves a durable fact, optionally linked to files. Merges near-identical repeats and shows related memories so the AI can decide whether the new fact replaces one; `replaces="m42"` saves it and retires m42 in one call. |
 | `recall(query, limit?)` | Searches the project's memories by meaning. Checks linked files first, so it never returns a memory whose code changed underneath it. |
 | `explain_memory(id)` | Where a memory came from and its full history. |
 | `replace_memory(old, new)` | Retires an older memory that a newer one makes untrue. |
@@ -450,7 +450,7 @@ mnemolith/                   the Python package behind the `mnemolith` command
   server.py                  MCP server: embeddings, git staleness, AGENTS.md/CLAUDE.md sync
   engine.py                  finds Java, starts and stops the engine in the background
   javart.py                  downloads a private copy of Java when the computer has none
-  connect.py                 registers Mnemolith with Claude Code, Cursor, and Codex
+  connect.py                 registers Mnemolith with Claude Code, Claude Desktop, Cursor, and Codex
   cli.py                     the `mnemolith` command
   ui.py, ui/index.html       the dashboard (`mnemolith ui`): a local server, its API, and the page
   mender.py                  Mender: rule-drafted fixes, drafts from AI tools, and the guarded approve
@@ -469,7 +469,7 @@ crash_test.py                kill -9 crash-safety test
 Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, and `server.json`, commit, then:
 
 ```sh
-git tag v0.3.3 && git push --tags
+git tag v0.3.4 && git push --tags
 ```
 
 Once the release is on PyPI, point the Claude Code plugin at it: bump the version in

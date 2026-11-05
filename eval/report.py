@@ -28,8 +28,9 @@ def main():
     rows = [json.loads(line) for line in (batch / "results.jsonl").read_text().splitlines() if line.strip()]
 
     out = [f"# Evaluation {batch.name}", "", f"{len(rows)} runs.", ""]
-    out += ["| Setup | Tasks passed | Stale-fact or two-session tasks passed | Avg turns | Avg tool calls | Avg seconds | Avg tokens |",
-            "| --- | --- | --- | --- | --- | --- | --- |"]
+    out += ["| Setup | Tasks passed | Stale-fact or two-session tasks passed | Avg turns | Avg tool calls | Avg seconds "
+            "| Avg tokens | Avg cost (API prices) |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for arm in ARMS:
         mine = [r for r in rows if r["arm"] == arm]
         if not mine:
@@ -39,7 +40,8 @@ def main():
             f"| {LABEL[arm]} | {sum(r['passed'] for r in mine)}/{len(mine)} "
             f"| {sum(r['passed'] for r in stale)}/{len(stale)} "
             f"| {fmt(mean([r['turns'] for r in mine]))} | {fmt(mean([r['tool_calls'] for r in mine]))} "
-            f"| {fmt(mean([r['seconds'] for r in mine]))} | {fmt(mean([r['tokens'] for r in mine]), 0)} |")
+            f"| {fmt(mean([r['seconds'] for r in mine]))} | {fmt(mean([r['tokens'] for r in mine]), 0)} "
+            f"| ${fmt(mean([r['cost_usd'] for r in mine]), 3)} |")
 
     out += ["", "## By task", "", "| Task | " + " | ".join(LABEL[a] for a in ARMS) + " |",
             "| --- |" + " --- |" * len(ARMS)]
@@ -56,6 +58,7 @@ def main():
         out += ["", "## Failures", ""]
         out += [f"- {r['task']} / {LABEL[r['arm']]} (run {r['rep']}): {r['note']}" for r in failures]
 
+    out += ["", "Tokens include cached input, which costs about a tenth as much, so cost is the fairer comparison."]
     text = "\n".join(out) + "\n"
     (batch / "report.md").write_text(text)
     print(text)

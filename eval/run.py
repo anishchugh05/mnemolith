@@ -39,7 +39,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SUITES = {"v1": ("tasks", "template"), "v2": ("tasks_v2", "template_v2")}
 RUNS = HERE / "runs"
-MNEMOLITH = "0.3.3"  # the release under test; seed.py and the MCP server both use it
+MNEMOLITH = "0.3.4"  # the release under test; seed.py and the MCP server both use it
 ARMS = ["none", "notes", "mnemolith"]
 
 ALLOWED_TOOLS = [

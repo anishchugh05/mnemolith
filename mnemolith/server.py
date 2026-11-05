@@ -34,9 +34,10 @@ INSTRUCTIONS = (
     "- At the start of every task, call recall with a short description of the task.\n"
     "- When the user asks you to remember, save, or note something about the project, or you learn something "
     "durable that a future session would need (a convention, a setup gotcha, a decision and its reason), call "
-    "remember. Pass files= with the files the fact depends on, so it's retired automatically when they change.\n"
-    "- If a memory turns out to be wrong, call mark_outdated. If a new fact makes an old one untrue, call "
-    "replace_memory."
+    "remember. Pass files= with the files the fact depends on, so it's retired automatically when they change. "
+    "Don't save what recall already showed you.\n"
+    "- If a memory turns out to be wrong, call mark_outdated. If a new fact makes an old one untrue, save it with "
+    "remember(..., replaces=\"<old id>\") in one call."
 )
 MENDER_INSTRUCTIONS = (
     "\n- Mender is on: memories whose files changed get a drafted fix that the user approves in the dashboard. "
@@ -368,7 +369,7 @@ def core_tool():
 
 
 @core_tool()
-def remember(fact: str, files: Optional[List[str]] = None) -> str:
+def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "") -> str:
     """Save a durable fact about this project so future sessions, in any AI tool, know it.
     Use this, not a built-in memory or notes file, whenever the user asks you to remember something
     about the project.
@@ -377,6 +378,7 @@ def remember(fact: str, files: Optional[List[str]] = None) -> str:
     decisions and their reasons. Not: temporary task details or anything in the code already.
     files: repo-relative paths this fact depends on (e.g. ["docker-compose.yml"]), so the memory
     can be flagged when those files change.
+    replaces: the id of a memory this fact makes untrue (e.g. "m42"), to save and retire it in one call.
     """
     try:
         vector = embed(fact)
@@ -384,6 +386,9 @@ def remember(fact: str, files: Optional[List[str]] = None) -> str:
         if outcome == "duplicate":
             return f"Already known as {mem_id}; noted that it came up again. Nothing new was stored."
         reply = f"Saved as {mem_id}."
+        if replaces:
+            reply += " " + replace_memory(replaces, mem_id)
+            return reply
         if outcome == "possible_conflict":
             old = dict(zip(*[iter(run("MEM.GET", related))] * 2))
             reply += (f" It is very similar to {related}: \"{old.get('text')}\" and may contradict it. "
@@ -462,7 +467,7 @@ def explain_memory(memory_id: str) -> str:
 @mcp.tool()
 def mark_outdated(memory_id: str, reason: str) -> str:
     """Mark a memory as no longer true, with a short reason. It stops counting as current but keeps its
-    history. If you know what's true now, save that with remember and call replace_memory instead, so
+    history. If you know what's true now, save that with remember(..., replaces=<this id>) instead, so
     the next session knows the new fact, not just that the old one is wrong."""
     try:
         reply = run("MEM.STATUS", memory_id, "stale", "REASON", reason)

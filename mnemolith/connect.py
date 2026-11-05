@@ -9,7 +9,8 @@ from typing import List, Tuple
 
 NAME = "mnemolith"
 OLD_NAMES = ("aether-cache", "memstore")  # what the server was called before; replaced on connect
-TOOLS = ["claude-code", "cursor", "codex"]
+TOOLS = ["claude-code", "claude-desktop", "cursor", "codex"]
+DESKTOP_PROJECT = "claude-desktop"  # Claude Desktop isn't opened in a project folder, so its memories share one
 
 
 def settings_env() -> dict:
@@ -27,6 +28,16 @@ def cursor_config() -> Path:
     return Path.home() / ".cursor" / "mcp.json"
 
 
+def claude_desktop_config() -> Path:
+    if sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    elif sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return base / "Claude" / "claude_desktop_config.json"
+
+
 def codex_config() -> Path:
     return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "config.toml"
 
@@ -36,6 +47,8 @@ def detected() -> List[str]:
     found = []
     if shutil.which("claude"):
         found.append("claude-code")
+    if claude_desktop_config().parent.is_dir():
+        found.append("claude-desktop")
     if (Path.home() / ".cursor").is_dir():
         found.append("cursor")
     if shutil.which("codex") or codex_config().parent.is_dir():
@@ -160,53 +173,99 @@ def _server_entry(source: str, workspace_var: str = "") -> dict:
     return {"command": cmd[0], "args": cmd[1:], "env": env}
 
 
-def connect_cursor() -> Tuple[bool, str]:
-    path = cursor_config()
-    data = {}
-    if path.exists():
+def _read_json(path: Path):
+    """(data, error): the config as a dict, {} if the file is missing or empty."""
+    try:
         text = path.read_text(encoding="utf-8")
-        try:
-            data = json.loads(text) if text.strip() else {}
-        except json.JSONDecodeError as e:
-            return False, (f"Couldn't read {path} ({e}). Fix it, or add this under \"mcpServers\" yourself:\n"
-                           + json.dumps({NAME: _server_entry("cursor", "${workspaceFolder}")}, indent=2))
-        shutil.copyfile(path, path.with_name("mcp.json.bak"))
-    servers = data.setdefault("mcpServers", {})
-    for old in OLD_NAMES:
-        servers.pop(old, None)  # replaced by the entry below
-    servers[NAME] = _server_entry("cursor", "${workspaceFolder}")
+    except OSError:
+        return {}, None
+    try:
+        data = json.loads(text) if text.strip() else {}
+    except json.JSONDecodeError as e:
+        return None, str(e)
+    return (data, None) if isinstance(data, dict) else (None, "the file isn't a JSON object")
+
+
+def _write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name("mcp.json.mnemolith-tmp")
+    if path.exists():
+        shutil.copyfile(path, path.with_name(path.name + ".bak"))
+    tmp = path.with_name(path.name + ".mnemolith-tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
-    return True, f"Cursor: connected for all projects ({path}). Restart Cursor to pick it up."
+
+
+def _connect_json(path: Path, entry: dict, label: str, done_message: str) -> Tuple[bool, str]:
+    data, error = _read_json(path)
+    if data is None:
+        return False, (f"Couldn't read {path} ({error}). Fix it, or add this under \"mcpServers\" yourself:\n"
+                       + json.dumps({NAME: entry}, indent=2))
+    servers = data.setdefault("mcpServers", {})
+    if not isinstance(servers, dict):
+        return False, f"{label}: \"mcpServers\" in {path} isn't an object. Fix it, then try again."
+    for old in OLD_NAMES:
+        servers.pop(old, None)  # replaced by the entry below
+    servers[NAME] = entry
+    _write_json(path, data)
+    return True, done_message
+
+
+def _disconnect_json(path: Path, label: str, restart: str) -> Tuple[bool, str]:
+    if not path.exists():
+        return True, f"{label}: disconnected (it wasn't connected)."
+    data, error = _read_json(path)
+    if data is None:
+        return False, f"{label}: couldn't read {path} ({error}). Remove the \"{NAME}\" entry yourself."
+    servers = data.get("mcpServers")
+    if not isinstance(servers, dict) or not any(n in servers for n in (NAME, *OLD_NAMES)):
+        return True, f"{label}: disconnected (it wasn't connected)."
+    for n in (NAME, *OLD_NAMES):
+        servers.pop(n, None)
+    _write_json(path, data)
+    return True, f"{label}: disconnected ({path}). {restart}"
+
+
+def _json_connected(path: Path) -> bool:
+    data, _ = _read_json(path)
+    return bool(data) and isinstance(data.get("mcpServers"), dict) and NAME in data["mcpServers"]
+
+
+def connect_cursor() -> Tuple[bool, str]:
+    path = cursor_config()
+    return _connect_json(path, _server_entry("cursor", "${workspaceFolder}"), "Cursor",
+                         f"Cursor: connected for all projects ({path}). Restart Cursor to pick it up.")
 
 
 def disconnect_cursor() -> Tuple[bool, str]:
-    path = cursor_config()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8") or "{}")
-    except OSError:
-        return True, "Cursor: disconnected (it wasn't connected)."
-    except json.JSONDecodeError as e:
-        return False, f"Cursor: couldn't read {path} ({e}). Remove the \"{NAME}\" entry yourself."
-    servers = data.get("mcpServers") if isinstance(data, dict) else None
-    if not isinstance(servers, dict) or not any(n in servers for n in (NAME, *OLD_NAMES)):
-        return True, "Cursor: disconnected (it wasn't connected)."
-    shutil.copyfile(path, path.with_name("mcp.json.bak"))
-    for n in (NAME, *OLD_NAMES):
-        servers.pop(n, None)
-    tmp = path.with_name("mcp.json.mnemolith-tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
-    return True, f"Cursor: disconnected ({path}). Restart Cursor to pick it up."
+    return _disconnect_json(cursor_config(), "Cursor", "Restart Cursor to pick it up.")
 
 
 def cursor_connected() -> bool:
-    try:
-        return NAME in json.loads(cursor_config().read_text(encoding="utf-8")).get("mcpServers", {})
-    except (OSError, ValueError, AttributeError):
-        return False
+    return _json_connected(cursor_config())
+
+
+# ---------- Claude Desktop ----------
+
+def _desktop_entry() -> dict:
+    entry = _server_entry("claude-desktop", str(Path.home()))
+    entry["env"]["MNEMOLITH_PROJECT"] = DESKTOP_PROJECT
+    return entry
+
+
+def connect_claude_desktop() -> Tuple[bool, str]:
+    path = claude_desktop_config()
+    return _connect_json(path, _desktop_entry(), "Claude Desktop",
+                         f"Claude Desktop: connected ({path}). Quit and reopen Claude Desktop to pick it up. "
+                         f"Its memories go in the project \"{DESKTOP_PROJECT}\", and can be tied to any file in "
+                         f"your home folder.")
+
+
+def disconnect_claude_desktop() -> Tuple[bool, str]:
+    return _disconnect_json(claude_desktop_config(), "Claude Desktop", "Quit and reopen Claude Desktop to pick it up.")
+
+
+def claude_desktop_connected() -> bool:
+    return _json_connected(claude_desktop_config())
 
 
 # ---------- Codex ----------
@@ -287,10 +346,13 @@ def generic_instructions() -> str:
             + "\nRun the tool from your project folder, or set MNEMOLITH_REPO to the project's path.")
 
 
-CONNECTORS = {"claude-code": connect_claude_code, "cursor": connect_cursor, "codex": connect_codex}
-DISCONNECTORS = {"claude-code": disconnect_claude_code, "cursor": disconnect_cursor, "codex": disconnect_codex}
-LABELS = {"claude-code": "Claude Code", "cursor": "Cursor", "codex": "Codex"}
-CHECKS = {"claude-code": claude_code_connected, "cursor": cursor_connected, "codex": codex_connected}
+CONNECTORS = {"claude-code": connect_claude_code, "claude-desktop": connect_claude_desktop,
+              "cursor": connect_cursor, "codex": connect_codex}
+DISCONNECTORS = {"claude-code": disconnect_claude_code, "claude-desktop": disconnect_claude_desktop,
+                 "cursor": disconnect_cursor, "codex": disconnect_codex}
+LABELS = {"claude-code": "Claude Code", "claude-desktop": "Claude Desktop", "cursor": "Cursor", "codex": "Codex"}
+CHECKS = {"claude-code": claude_code_connected, "claude-desktop": claude_desktop_connected,
+          "cursor": cursor_connected, "codex": codex_connected}
 
 
 def refresh_instructions() -> List[str]:
