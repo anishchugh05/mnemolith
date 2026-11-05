@@ -2,6 +2,8 @@
 Run by run.py inside a fresh copy of the sample repo:
     uv run --no-project --with mnemolith==<version> python seed.py
 with MNEMOLITH_PROJECT set to that run's own project, so runs never see each other's memories."""
+import importlib
+import os
 import sys
 from pathlib import Path
 
@@ -9,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from mnemolith import engine, server  # noqa: E402
 
-from tasks import FACTS  # noqa: E402
+FACTS = importlib.import_module(os.environ.get("EVAL_SUITE", "tasks")).FACTS
 
 engine.ensure_running()
 for fact in FACTS:

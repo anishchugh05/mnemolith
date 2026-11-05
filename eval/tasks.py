@@ -133,8 +133,9 @@ def check_unknown_coupon(cwd, answer):
 
 
 def check_tax_question(cwd, answer):
-    a = answer.replace(" ", "")
-    return ("6.25" in a and "8%" not in a), f"answered: {answer.strip()[:80]!r}"
+    # Only the first line is the answer; an explanation after it may mention the old 8% as out of date.
+    first = (answer.strip().splitlines() or [""])[0].replace(" ", "")
+    return ("6.25" in first and "8%" not in first), f"answered: {answer.strip()[:80]!r}"
 
 
 def check_shipping_question(cwd, answer):
