@@ -42,3 +42,8 @@ python3 report.py            # the results table
 
 Runs use your Claude plan. If it hits the usage limit, the batch stops and `--resume` picks up where it left off.
 Results and transcripts go to `eval/runs/` (not committed).
+
+## Results
+
+The latest full run of round 2 is in [results/2026-11-04-round2.md](results/2026-11-04-round2.md): no memory 9 of 21,
+CLAUDE.md notes 19 of 21, Mnemolith 21 of 21, with Mnemolith using about 50% more tokens than the notes file.

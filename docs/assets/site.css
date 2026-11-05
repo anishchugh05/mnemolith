@@ -957,6 +957,25 @@ td:last-child {
   color: var(--muted);
   font-size: 12px;
 }
+.eval-run {
+  max-width: 640px;
+  margin-top: 36px;
+}
+.eval-run h3 {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  margin: 0 0 6px;
+}
+.eval-run p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.eval-run a {
+  color: var(--ink);
+  text-underline-offset: 3px;
+}
 .finding {
   display: grid;
   grid-template-columns: 1fr 1fr;

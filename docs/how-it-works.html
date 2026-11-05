@@ -21,7 +21,7 @@
           document.documentElement.dataset.theme = t;
       } catch (e) {}
     </script>
-    <link href="assets/site.css?v=11" rel="stylesheet" />
+    <link href="assets/site.css?v=12" rel="stylesheet" />
     <link
       as="font"
       crossorigin=""
@@ -568,6 +568,94 @@
             >Inspect the project on GitHub.</a
           >
         </p>
+      </section>
+      <section aria-labelledby="eval-title" class="section wrap" id="does-it-help">
+        <div class="section-lead">
+          <h2 id="eval-title">Does memory help? We tested it.</h2>
+          <p>
+            Claude Code did 7 tasks in a sample codebase, 3 times each, in three
+            setups. Every task needs something only a teammate would know: a
+            past decision, who owns which code, a promise to a partner, a
+            business rule. Two need a fact mentioned in an earlier session.
+            An automatic check grades every run.
+          </p>
+        </div>
+        <div class="measurement-table">
+          <table>
+            <caption class="sr-only">
+              Evaluation results: tasks done right in each setup
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Setup</th>
+                <th scope="col">Tasks done right</th>
+                <th scope="col">What happened</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">No memory</th>
+                <td>
+                  <strong>43%</strong
+                  ><span>9 of 21, 3 of 6 across sessions</span>
+                </td>
+                <td>
+                  Edited the payments team&rsquo;s code, changed a frozen
+                  partner API and skipped refund approval, every time.
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">CLAUDE.md notes</th>
+                <td>
+                  <strong>90%</strong
+                  ><span>19 of 21, 4 of 6 across sessions</span>
+                </td>
+                <td>
+                  The same facts in a notes file. Missed a database address
+                  from an earlier session 2 times out of 3.
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Mnemolith</th>
+                <td>
+                  <strong>100%</strong
+                  ><span>21 of 21, 6 of 6 across sessions</span>
+                </td>
+                <td>
+                  The same facts as memories. It saved what came up in
+                  conversation on its own and used it in the next session.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="measurement-note">
+          The cost: Mnemolith used about 50% more tokens than a notes file
+          (142K vs 91K per task), because recalling and keeping memories up to
+          date takes turns. 63 runs on Claude Opus 5.5, November 2026. In an
+          earlier round, where every fact could also be found in the code,
+          all three setups tied: Claude reads code well.
+        </p>
+        <div class="eval-run">
+          <h3>Run it yourself</h3>
+          <p>
+            Uses your own Claude Code plan. About 63 runs, so it may take two
+            sittings.
+            <a href="https://github.com/anishchugh05/mnemolith/tree/main/eval"
+              >How it works and what each task checks.</a
+            >
+          </p>
+          <div class="code-block">
+            <pre>git clone https://github.com/anishchugh05/mnemolith &amp;&amp; cd mnemolith/eval &amp;&amp; python3 run.py --repeat 3</pre>
+            <button
+              aria-label="Copy the command that runs the evaluation"
+              class="copy-button"
+              data-copy="git clone https://github.com/anishchugh05/mnemolith &amp;&amp; cd mnemolith/eval &amp;&amp; python3 run.py --repeat 3"
+            >
+              Copy
+            </button>
+          </div>
+        </div>
       </section>
       <div class="wrap">
         <div class="closing">

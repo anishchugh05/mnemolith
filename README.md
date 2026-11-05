@@ -54,6 +54,30 @@ other tools ─┘   (Python: embeddings,│          memories, HNSW vector inde
                                      └─────────────────────────────────────────────┘
 ```
 
+## Does it help?
+
+We tested it. Claude Code did 7 tasks in a sample codebase, 3 times each, in three setups. Every task needs
+something only a teammate would know: a past decision, who owns which code, a promise to a partner, a business
+rule. Two need a fact mentioned in an earlier session. An automatic check grades every run.
+
+| Setup | Tasks done right | Across sessions | Avg tokens per task |
+| --- | --- | --- | --- |
+| No memory | 43% (9 of 21) | 3 of 6 | 101K |
+| CLAUDE.md notes, same facts | 90% (19 of 21) | 4 of 6 | 91K |
+| Mnemolith, same facts | **100% (21 of 21)** | **6 of 6** | 142K |
+
+Without memory, Claude edited another team's code, changed a frozen partner API and skipped refund approval, every
+time. A CLAUDE.md file held the same facts but missed a database address mentioned in an earlier session 2 times
+out of 3; Mnemolith saved it on its own and used it next session. The cost is about 50% more tokens than a notes
+file, because recalling and keeping memories up to date takes turns. 63 runs on Claude Opus 5.5, November 2026.
+In an earlier round where every fact could also be found in the code, all three setups tied.
+
+Run it yourself (uses your own Claude Code plan; see [eval/](eval) for what each task checks):
+
+```sh
+cd eval && python3 run.py --repeat 3 && python3 report.py
+```
+
 ## What it looks like
 
 The dashboard (`mnemolith ui`): memories whose files changed wait for a decision, with the file versions side by side.
@@ -433,6 +457,8 @@ mnemolith/                   the Python package behind the `mnemolith` command
   portability.py             import from notes files, export to JSON
   engine/mnemolith-engine.jar the prebuilt engine (rebuild with `python scripts/build_engine.py`)
 tests/test_mender.py         Mender's rules (`python -m pytest tests`)
+eval/                        with-vs-without memory evaluation on a sample codebase (`python3 eval/run.py`)
+plugin/                      the Claude Code plugin (listed through .claude-plugin/marketplace.json)
 memory_mcp/calibrate.py      similarity calibration for duplicate/contradiction thresholds
 vector_bench.py              HNSW benchmark (writes results.json)
 crash_test.py                kill -9 crash-safety test
