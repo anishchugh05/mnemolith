@@ -420,13 +420,35 @@ Mnemolith is an early, open-source project. These are the production systems in 
 - **Instruction files:** [AGENTS.md](https://agents.md/) and `CLAUDE.md`. Mnemolith syncs into these rather than
   replacing them.
 
+## Roadmap
+
+What's coming next, roughly in order. Ideas and pushback are welcome in
+[GitHub issues](https://github.com/anishchugh05/mnemolith/issues).
+
+**Next: team memory (December to February)**
+- **Shared memory for a repo.** Each person keeps their own memories, and each repo gets one shared team memory that
+  every teammate's AI reads. You promote a memory to the team explicitly, so nothing gets shared by accident.
+- **Reviewed like code.** Team memories live in the repo as plain files. Mnemolith writes the file; you commit it
+  and open the pull request yourself, so teammates review a change to team knowledge the same way they review code.
+  Git history is the audit trail, and access follows repo permissions. Mnemolith never commits on its own.
+- **Stale memories flagged in pull requests.** A GitHub Action comments when a pull request changes files that team
+  memories depend on, so outdated knowledge gets caught in review.
+
+**Then: memory for any folder (early 2027)**
+- Memories for folders that aren't code, tied to PDFs, Word files and spreadsheets, and flagged when those change,
+  so people who aren't developers can use it too.
+- Later, a desktop app that installs like any other app, with no terminal needed.
+
+**Always:** the local version stays free and open source.
+
 ## Status and limitations
 
 Mnemolith is v1 and early. It works end to end in automated tests and is now being tried in real Claude Code sessions.
 
 **Not done yet:**
-- **A with-memory vs. without-memory evaluation** on real coding tasks, to measure whether it actually reduces
-  re-explaining.
+- **An evaluation on real-world repos.** The [evaluation above](#does-it-help) uses a small sample codebase built for
+  it; real projects are bigger and messier.
+- **Lower overhead:** recalling and keeping memories up to date costs about 15% more per task than a notes file.
 - **AOF compaction:** the log only grows, and every status change adds a line.
 
 **Engine limitations:**
