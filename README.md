@@ -440,12 +440,15 @@ crash_test.py                kill -9 crash-safety test
 
 ## Releasing
 
-Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, `server.json`, and the plugin (`plugin/.claude-plugin/plugin.json`,
-`plugin/pyproject.toml`, then `uv lock` in `plugin/`), commit, then:
+Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, and `server.json`, commit, then:
 
 ```sh
-git tag v0.3.2 && git push --tags
+git tag v0.3.3 && git push --tags
 ```
+
+Once the release is on PyPI, point the Claude Code plugin at it: bump the version in
+`plugin/.claude-plugin/plugin.json` and `plugin/pyproject.toml`, run `uv lock` in `plugin/`, then commit and push.
+The plugin can't move first, because its lockfile needs the new release to exist.
 
 The [release workflow](.github/workflows/release.yml) checks the versions match, builds and smoke-tests the package,
 publishes it to PyPI and the MCP Registry, and creates the GitHub Release.

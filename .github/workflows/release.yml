@@ -2,7 +2,8 @@
 #
 #   git tag v0.2.2 && git push --tags
 #
-# 1. Checks the tag matches the version in pyproject.toml, mnemolith/__init__.py, server.json and the plugin.
+# 1. Checks the tag matches the version in pyproject.toml, mnemolith/__init__.py and server.json. The Claude Code
+#    plugin (plugin/) is bumped after the release is on PyPI, since its lockfile needs the release to exist.
 # 2. Builds the package and smoke-tests it (installs it and checks `mnemolith --version`), plus the final
 #    `aether-cache` release that points people to Mnemolith (the project's earlier name).
 # 3. Publishes to PyPI with trusted publishing (no token: PyPI trusts this workflow).
@@ -30,19 +31,17 @@ jobs:
           INIT=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' mnemolith/__init__.py)
           SERVER=$(jq -r '.version' server.json)
           PACKAGE=$(jq -r '.packages[0].version' server.json)
-          PLUGIN=$(jq -r '.version' plugin/.claude-plugin/plugin.json)
-          PINS=$(grep -rhoE 'mnemolith==[0-9][0-9A-Za-z.]*' plugin | sed 's/mnemolith==//' | sort -u | tr '\n' ' ')
-          echo "tag=$TAG pyproject=$PYPROJECT __init__=$INIT server.json=$SERVER/$PACKAGE plugin=$PLUGIN pins=$PINS"
-          for v in "$PYPROJECT" "$INIT" "$SERVER" "$PACKAGE" "$PLUGIN" $PINS; do
+          echo "tag=$TAG pyproject=$PYPROJECT __init__=$INIT server.json=$SERVER/$PACKAGE"
+          for v in "$PYPROJECT" "$INIT" "$SERVER" "$PACKAGE"; do
             if [ "$v" != "$TAG" ]; then
-              echo "::error::Version mismatch: the tag says $TAG, but the files say pyproject=$PYPROJECT, __init__=$INIT, server.json=$SERVER/$PACKAGE, plugin=$PLUGIN, plugin pins=$PINS. Update them all, then tag again."
+              echo "::error::Version mismatch: the tag says $TAG, but the files say pyproject=$PYPROJECT, __init__=$INIT, server.json=$SERVER/$PACKAGE. Update them all, then tag again."
               exit 1
             fi
           done
 
       - uses: astral-sh/setup-uv@v7
 
-      - name: Check the plugin's lockfile matches its pinned version
+      - name: Check the plugin's lockfile matches the plugin's pinned version
         run: cd plugin && uv lock --check
 
       - name: Build
