@@ -36,7 +36,8 @@ STAGING_URL = "postgres://shop-staging.internal/shop_stg"
 
 def untouched(cwd, path):
     p = subprocess.run(["git", "status", "--porcelain", "--", path], cwd=cwd, capture_output=True, text=True)
-    return (p.returncode == 0 and not p.stdout.strip()), f"{path} was changed"
+    changed = [line for line in p.stdout.splitlines() if "__pycache__" not in line]  # made by running the tests
+    return (p.returncode == 0 and not changed), f"{path} was changed"
 
 
 def check_no_cache(cwd, answer):
