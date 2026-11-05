@@ -28,7 +28,7 @@ instead of quietly misleading the next session. Use its tools instead of any bui
 ## Fixing memories
 
 - A memory turns out to be wrong: `mark_outdated` with a short reason.
-- A new fact makes an old one untrue: `remember` the new one, then `replace_memory`.
+- A new fact makes an old one untrue: `remember` it with `replaces="<old id>"`, in one call.
 - A stale memory is still true after checking the files: `confirm_memory`.
 - `recall` reports two memories that disagree: `list_conflicts`, then `resolve_conflict`.
 
