@@ -956,28 +956,28 @@ wheels = [
 
 [[package]]
 name = "mnemolith"
-version = "0.3.2"
+version = "0.3.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastembed" },
     { name = "mcp" },
     { name = "redis" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b3/69/2287d21da8bd2f461b0a8d6a0cdd535d5d93d1c1b216ec731abcef6cca5b/mnemolith-0.3.2.tar.gz", hash = "sha256:7346f7553edb70a6f6700741adac8c33644c5d71e5cecc41fddd62ae7dc8b8fe", size = 236661, upload-time = "2026-11-02T00:08:28.964Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/e9/dd48653c2986cb5e1ee002fdfb61032e0ccc3cbe56759c364aab1efead70/mnemolith-0.3.3.tar.gz", hash = "sha256:ae5e19787320ced8f41f3eefad381c5ab2337c486cbf4e3d05c237cee283c3d9", size = 240275, upload-time = "2026-11-05T02:51:18.678Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/a7/316d15940471993131e0c6eebc138e60c788920e46466ed4432ad365070c/mnemolith-0.3.2-py3-none-any.whl", hash = "sha256:0ea79153d4629a7b3dace0ea62b6790fb630621c292615ecc12b5ad992d81b9a", size = 241337, upload-time = "2026-11-02T00:08:27.681Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/50/aa494174476f6883444f0c12e61eaf6ee97edf5f089a7a0bcde178311287/mnemolith-0.3.3-py3-none-any.whl", hash = "sha256:e049169877f23fe2e8a18ee60a6df31d3eab24cc3f1c4618e1225eef24b4c2e0", size = 241751, upload-time = "2026-11-05T02:51:16.949Z" },
 ]
 
 [[package]]
 name = "mnemolith-plugin"
-version = "0.3.2"
+version = "0.3.3"
 source = { virtual = "." }
 dependencies = [
     { name = "mnemolith" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mnemolith", specifier = "==0.3.2" }]
+requires-dist = [{ name = "mnemolith", specifier = "==0.3.3" }]
 
 [[package]]
 name = "mpmath"

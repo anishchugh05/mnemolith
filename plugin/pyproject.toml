@@ -2,9 +2,9 @@
 # Claude Code starts the server with `uv run --locked`, so nothing outside this lock is installed.
 [project]
 name = "mnemolith-plugin"
-version = "0.3.2"
+version = "0.3.3"
 requires-python = ">=3.10"
-dependencies = ["mnemolith==0.3.2"]
+dependencies = ["mnemolith==0.3.3"]
 
 [tool.uv]
 package = false
