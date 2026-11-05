@@ -86,7 +86,7 @@ def prepare(suite, run_dir, arm, project):
         git_commit(run_dir, "Add notes for AI tools")
     if arm == "mnemolith":
         env = dict(os.environ, MNEMOLITH_PROJECT=project, MNEMOLITH_SOURCE="eval", EVAL_SUITE=suite.__name__)
-        sh(["uv", "run", "--quiet", "--no-project", "--python", "3.12", "--with", f"mnemolith=={MNEMOLITH}", "python",
+        sh(["uv", "run", "--quiet", "--no-project", "--refresh-package", "mnemolith", "--python", "3.12", "--with", f"mnemolith=={MNEMOLITH}", "python",
             str(HERE / "seed.py")], run_dir, env=env)
     if suite.DRIFT:
         for rel, (old, new) in suite.DRIFT.items():
@@ -98,7 +98,7 @@ def prepare(suite, run_dir, arm, project):
 def mcp_config(run_dir, arm, project):
     servers = {}
     if arm == "mnemolith":
-        servers["mnemolith"] = {"command": "uvx", "args": ["--python", "3.12", f"mnemolith=={MNEMOLITH}", "serve"],
+        servers["mnemolith"] = {"command": "uvx", "args": ["--refresh-package", "mnemolith", "--python", "3.12", f"mnemolith=={MNEMOLITH}", "serve"],
                                 "env": {"MNEMOLITH_PROJECT": project, "MNEMOLITH_SOURCE": "eval"}}
     path = run_dir.parent / f"{run_dir.name}.mcp.json"
     path.write_text(json.dumps({"mcpServers": servers}))
@@ -141,7 +141,8 @@ def ask_claude(run_dir, prompt, config, model, transcript):
 
 def hit_limit(result):
     text = (result.get("answer") or "").lower()
-    return result.get("error") and any(w in text for w in ("usage limit", "rate limit", "limit reached"))
+    return result.get("error") and any(w in text for w in ("usage limit", "rate limit", "limit reached",
+                                                           "hit your", "limit · resets", "resets "))
 
 
 def plan(tasks, repeat, seed):
