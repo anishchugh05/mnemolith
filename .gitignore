@@ -23,3 +23,6 @@ DESIGN.md
 
 # the plugin's local environment, created by `uv run`
 plugin/.venv/
+
+# evaluation results and transcripts, made by eval/run.py
+eval/runs/

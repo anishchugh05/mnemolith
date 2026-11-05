@@ -1,0 +1,6 @@
+{
+  "fields": {
+    "name": "str",
+    "price_cents": "int"
+  }
+}
