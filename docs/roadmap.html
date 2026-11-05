@@ -1,0 +1,264 @@
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link
+      href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Cpath d=%27M16 2 29 9 16 16 3 9 16 2Zm-13 14 13 7 13-7M3 23l13 7 13-7%27 fill=%27none%27 stroke=%27%2334594f%27 stroke-width=%272.3%27/%3E%3C/svg%3E"
+      rel="icon"
+    />
+    <meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport" />
+    <meta content="light dark" name="color-scheme" />
+    <meta
+      content="Where Mnemolith is heading: shared team memory reviewed like code, then memory for any folder, plus what's not done yet."
+      name="description"
+    />
+    <title>Roadmap — Mnemolith</title>
+    <script>
+      try {
+        const t = localStorage.getItem("mnemolith-theme");
+        if (t === "light" || t === "dark")
+          document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+    <link href="assets/site.css?v=13" rel="stylesheet" />
+    <link
+      as="font"
+      crossorigin=""
+      href="assets/plex-sans.woff2"
+      rel="preload"
+      type="font/woff2"
+    />
+    <meta property="og:title" content="Roadmap — Mnemolith" />
+    <meta
+      property="og:description"
+      content="Where Mnemolith is heading: shared team memory reviewed like code, then memory for any folder, plus what's not done yet."
+    />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:url"
+      content="https://mnemolith.dev/roadmap.html"
+    />
+    <meta
+      property="og:image"
+      content="https://mnemolith.dev/assets/og-image.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Mnemolith. Memory that stays true to your code. A dashboard card shows a stale memory and the file versions behind it."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Roadmap — Mnemolith" />
+    <meta
+      name="twitter:description"
+      content="Where Mnemolith is heading: shared team memory reviewed like code, then memory for any folder, plus what's not done yet."
+    />
+    <meta
+      name="twitter:image"
+      content="https://mnemolith.dev/assets/og-image.png"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="Mnemolith. Memory that stays true to your code. A stale-memory review card."
+    />
+    <!-- Privacy-friendly visit counts (no cookies): https://aethercache.goatcounter.com -->
+    <script async data-goatcounter="https://aethercache.goatcounter.com/count" data-goatcounter-settings='{"no_onload": true}' src="https://gc.zgo.at/count.js"></script>
+    <script>
+      // Count a visit only when the page is actually shown, not when it's prerendered in case you click.
+      (function () {
+        function count() {
+          if (window.goatcounter && window.goatcounter.count) window.goatcounter.count({ path: location.pathname + location.search });
+          else setTimeout(count, 300);
+        }
+        function shown() { if (document.prerendering) document.addEventListener("prerenderingchange", count, { once: true }); else count(); }
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", shown); else shown();
+      })();
+    </script>
+    <!-- Pages you're likely to open next load in the background when you hover or start a click on their link
+         (same site only; downloads like install.sh are left out). -->
+    <script type="speculationrules">
+      {
+        "prerender": [
+          {
+            "where": {
+              "and": [
+                { "href_matches": "/*" },
+                { "not": { "href_matches": "/*.sh" } },
+                { "not": { "href_matches": "/*.ps1" } },
+                { "not": { "href_matches": "/assets/*" } },
+                { "not": { "selector_matches": "[download], [target]" } }
+              ]
+            },
+            "eagerness": "moderate"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body class="page-about">
+    <a class="skip" href="#main">Skip to content</a>
+    <div class="wrap">
+      <header class="masthead">
+        <a aria-label="Mnemolith home" class="brand" href="index.html"
+          ><svg
+            aria-hidden="true"
+            class="brand-mark"
+            fill="none"
+            viewBox="0 0 30 32"
+          >
+            <path
+              d="M15 2 28 9 15 16 2 9 15 2Z"
+              stroke="currentColor"
+              stroke-width="2"
+            ></path>
+            <path
+              d="m2 16 13 7 13-7M2 23l13 7 13-7"
+              stroke="currentColor"
+              stroke-width="2"
+            ></path></svg
+          >Mnemolith</a
+        >
+        <nav aria-label="Main navigation">
+          <a href="index.html">Home</a
+          ><a href="how-it-works.html">How it works</a
+          ><a href="install.html">Install</a
+          ><a href="mender.html">Mender</a
+          ><a aria-current="page" href="roadmap.html">Roadmap</a
+          ><a href="about.html">About</a>
+        </nav>
+        <button
+          aria-label="Switch color theme"
+          class="theme"
+          id="theme-toggle"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            fill="none"
+            height="17"
+            viewBox="0 0 20 20"
+            width="17"
+          >
+            <path
+              d="M16.7 12.6A7 7 0 0 1 7.4 3.3 7 7 0 1 0 16.7 12.6Z"
+              stroke="currentColor"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+            ></path>
+          </svg>
+        </button>
+      </header>
+    </div>
+    <main id="main" tabindex="-1">
+      <header class="page-intro wrap">
+        <h1>Where Mnemolith is heading.</h1>
+        <div>
+          <p>
+            Today Mnemolith gives AI coding tools a shared memory that knows
+            when it&rsquo;s out of date. Next, that memory becomes something a
+            whole team shares and reviews. Then it reaches people who
+            don&rsquo;t write code. Last updated November 5, 2026.
+          </p>
+        </div>
+      </header>
+      <section aria-labelledby="today-title" class="about-story wrap">
+        <h2 id="today-title">Today</h2>
+        <div>
+          <p>
+            Version 0.3.4. One memory shared by Claude Code, Claude Desktop,
+            Cursor and Codex, tied to the files each fact depends on and
+            flagged when those files change.
+            <a href="mender.html">Mender</a> drafts the fix for a stale memory
+            and you approve it, and a local dashboard shows what your AI knows
+            and why.
+          </p>
+          <p>
+            It helps: on tasks that need knowledge the code doesn&rsquo;t show,
+            Claude got 43% right with no memory and 100% with Mnemolith.
+            <a href="how-it-works.html#does-it-help">See the evaluation</a>.
+          </p>
+        </div>
+      </section>
+      <section aria-labelledby="team-title" class="about-story wrap">
+        <h2 id="team-title">Next: team memory</h2>
+        <div>
+          <p>
+            December to February. Each person keeps their own memories, and
+            each repo gets one shared team memory that every teammate&rsquo;s
+            AI reads, so nobody&rsquo;s AI rediscovers what the team already
+            knows. You promote a memory to the team on purpose, with a clear
+            heads-up that everyone with access to the repo will see it.
+          </p>
+          <p>
+            Team memories live in the repo as plain files. Mnemolith writes the
+            file; you commit it and open the pull request yourself, so
+            teammates review a change to team knowledge the same way they
+            review code. Git history is the audit trail, access follows repo
+            permissions, and Mnemolith never commits on its own.
+          </p>
+          <p>
+            When a pull request changes files that team memories depend on, a
+            GitHub Action comments on it, so outdated knowledge gets caught in
+            review instead of after the merge.
+          </p>
+        </div>
+      </section>
+      <section aria-labelledby="folders-title" class="about-story wrap">
+        <h2 id="folders-title">Then: memory for any folder</h2>
+        <div>
+          <p>
+            Early 2027. Memories for folders that aren&rsquo;t code, tied to
+            PDFs, Word files and spreadsheets and flagged when those change,
+            so a student, a researcher or a small business can keep their AI
+            up to date too. Later, a desktop app that installs like any other
+            app, with no terminal.
+          </p>
+        </div>
+      </section>
+      <section aria-labelledby="notyet-title" class="about-story wrap">
+        <h2 id="notyet-title">Not done yet</h2>
+        <div>
+          <p>
+            The evaluation uses a small sample codebase built for it; real
+            projects are bigger and messier. Recalling and keeping memories up
+            to date costs about 15% more per task than a notes file, and we
+            are working to bring that down. The engine&rsquo;s log only grows
+            for now.
+          </p>
+          <p>
+            The local version stays free and open source. Ideas and pushback
+            are welcome on
+            <a href="https://github.com/anishchugh05/mnemolith/issues">GitHub</a>.
+          </p>
+        </div>
+      </section>
+    </main>
+    <div class="wrap">
+      <footer class="footer">
+        <span>© 2026 Anish Chugh</span>
+        <div class="footer-links">
+          <a href="install.html#faq">FAQ</a
+          ><a href="https://github.com/anishchugh05/mnemolith/blob/main/LICENSE"
+            >License</a
+          ><a href="privacy.html">Privacy</a
+          ><a href="install.html#contact">Contact</a
+          ><a
+            href="https://github.com/anishchugh05/mnemolith"
+            >GitHub</a
+          ><a href="https://pypi.org/project/mnemolith/">PyPI</a
+          ><a href="https://glama.ai/mcp/servers/anishchugh05/mnemolith">Glama</a
+          ><span>Mnemolith v0.3.4</span>
+        </div>
+      </footer>
+    </div>
+    <div
+      aria-live="polite"
+      class="sr-only"
+      id="copy-status"
+      role="status"
+    ></div>
+    <script defer="" src="assets/site.js?v=11"></script>
+  </body>
+</html>

@@ -3094,3 +3094,16 @@ body {
     padding-right: 72px;
   }
 }
+
+/* Six menu items on a phone: keep each on one line, and let the row scroll on the narrowest screens. */
+.masthead nav a {
+  white-space: nowrap;
+}
+@media (max-width: 440px) {
+  .masthead nav {
+    gap: 10px;
+    font-size: 13px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+}
