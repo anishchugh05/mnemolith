@@ -75,7 +75,7 @@ def prepare(run_dir, arm, project):
         git_commit(run_dir, "Add notes for AI tools")
     if arm == "mnemolith":
         env = dict(os.environ, MNEMOLITH_PROJECT=project, MNEMOLITH_SOURCE="eval")
-        sh(["uv", "run", "--quiet", "--no-project", "--with", f"mnemolith=={MNEMOLITH}", "python",
+        sh(["uv", "run", "--quiet", "--no-project", "--python", "3.12", "--with", f"mnemolith=={MNEMOLITH}", "python",
             str(HERE / "seed.py")], run_dir, env=env)
     for rel, (old, new) in DRIFT.items():
         path = run_dir / rel
@@ -86,7 +86,7 @@ def prepare(run_dir, arm, project):
 def mcp_config(run_dir, arm, project):
     servers = {}
     if arm == "mnemolith":
-        servers["mnemolith"] = {"command": "uvx", "args": [f"mnemolith=={MNEMOLITH}", "serve"],
+        servers["mnemolith"] = {"command": "uvx", "args": ["--python", "3.12", f"mnemolith=={MNEMOLITH}", "serve"],
                                 "env": {"MNEMOLITH_PROJECT": project, "MNEMOLITH_SOURCE": "eval"}}
     path = run_dir.parent / f"{run_dir.name}.mcp.json"
     path.write_text(json.dumps({"mcpServers": servers}))
@@ -202,7 +202,7 @@ def main():
             f.write(json.dumps(row) + "\n")
         print(("pass" if passed else "FAIL") + f" ({result['seconds']}s, {result['turns']} turns)")
         if arm == "mnemolith":
-            sh(["uvx", f"mnemolith=={MNEMOLITH}", "remove", project, "--yes"], run_dir, check=False)
+            sh(["uvx", "--python", "3.12", f"mnemolith=={MNEMOLITH}", "remove", project, "--yes"], run_dir, check=False)
         if passed and not args.keep:
             shutil.rmtree(run_dir, ignore_errors=True)
 
