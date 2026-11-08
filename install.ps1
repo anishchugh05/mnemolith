@@ -6,7 +6,7 @@
 # 2. Installs Mnemolith with uv, or upgrades it if it's already installed. If you had Aether Cache (its earlier
 #    name), it's replaced, and setup moves your memories over.
 # 3. Runs `mnemolith setup`, which starts the engine (downloading a private copy of Java if you
-#    don't have one), downloads the embedding model, and connects Claude Code, Cursor, and Codex.
+#    don't have one), downloads the embedding model, and connects Claude Code, Claude Desktop, Cursor, and Codex.
 #
 # Set $env:MNEMOLITH_SKIP_SETUP = "1" to install without running setup.
 # Everything runs as your user: nothing needs administrator rights.

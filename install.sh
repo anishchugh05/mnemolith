@@ -8,7 +8,7 @@
 #    name), it's replaced, and setup moves your memories over.
 # 3. Runs `mnemolith setup`, which starts the engine (downloading a private copy of Java if you
 #    don't have one), downloads the embedding model, asks whether to turn on Mender (drafted fixes for
-#    stale memories), and connects Claude Code, Cursor, and Codex.
+#    stale memories), and connects Claude Code, Claude Desktop, Cursor, and Codex.
 #
 # Set MNEMOLITH_SKIP_SETUP=1 to install without running setup.
 # Everything runs as your user: nothing needs sudo, and nothing is installed system-wide.

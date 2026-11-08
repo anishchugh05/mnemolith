@@ -142,7 +142,7 @@ On Windows (PowerShell):
 powershell -ExecutionPolicy ByPass -c "irm https://mnemolith.dev/install.ps1 | iex"
 ```
 
-The installer ([install.sh](docs/install.sh), [install.ps1](docs/install.ps1)) gets [uv](https://docs.astral.sh/uv/) if you
+The installer ([install.sh](install.sh), [install.ps1](install.ps1)) gets [uv](https://docs.astral.sh/uv/) if you
 don't have it (uv brings Python), installs Mnemolith, and runs `mnemolith setup`. Prefer your own tools? Any of
 these works, followed by `mnemolith setup`:
 
