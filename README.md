@@ -62,14 +62,14 @@ rule. Two need a fact mentioned in an earlier session. An automatic check grades
 
 | Setup | Tasks done right | Across sessions | Avg cost per task |
 | --- | --- | --- | --- |
-| No memory | 43% (9 of 21) | 3 of 6 | $0.12 |
-| CLAUDE.md notes, same facts | 90% (19 of 21) | 4 of 6 | $0.12 |
-| Mnemolith, same facts | **100% (21 of 21)** | **6 of 6** | $0.14 |
+| No memory | 43% (9 of 21) | 3 of 6 | $0.125 |
+| CLAUDE.md notes, same facts | 86% (18 of 21) | 3 of 6 | $0.121 |
+| Mnemolith, same facts | **100% (21 of 21)** | **6 of 6** | $0.125 |
 
 Without memory, Claude edited another team's code, changed a frozen partner API and skipped refund approval, every
-time. A CLAUDE.md file held the same facts but missed a database address mentioned in an earlier session 2 times
-out of 3; Mnemolith saved it on its own and used it next session. The cost is about 15% more per task than a notes
-file, at API prices, because recalling and keeping memories up to date takes a few extra turns. 63 runs on Claude Opus 5.5, November 2026.
+time. A CLAUDE.md file held the same facts but missed a database address mentioned in an earlier session every time;
+Mnemolith saved it on its own and used it next session. It costs about the same per task as a notes file, and the
+same as no memory at all (API prices). 63 runs of Mnemolith 0.3.5 on Claude Opus 5.5, November 2026.
 In an earlier round where every fact could also be found in the code, all three setups tied.
 
 Run it yourself (uses your own Claude Code plan; see [eval/](eval) for what each task checks):
@@ -448,7 +448,6 @@ Mnemolith is v1 and early. It works end to end in automated tests and is now bei
 **Not done yet:**
 - **An evaluation on real-world repos.** The [evaluation above](#does-it-help) uses a small sample codebase built for
   it; real projects are bigger and messier.
-- **Lower overhead:** recalling and keeping memories up to date costs about 15% more per task than a notes file.
 - **AOF compaction:** the log only grows, and every status change adds a line.
 
 **Engine limitations:**

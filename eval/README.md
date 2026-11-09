@@ -45,5 +45,7 @@ Results and transcripts go to `eval/runs/` (not committed).
 
 ## Results
 
-The latest full run of round 2 is in [results/2026-11-04-round2.md](results/2026-11-04-round2.md): no memory 9 of 21,
-CLAUDE.md notes 19 of 21, Mnemolith 21 of 21, with Mnemolith costing about 15% more per task than the notes file ($0.14 vs $0.12 at API prices).
+The latest full run of round 2, with Mnemolith 0.3.5, is in
+[results/2026-11-08-round2-v0.3.5.md](results/2026-11-08-round2-v0.3.5.md): no memory 9 of 21, CLAUDE.md notes 18 of
+21, Mnemolith 21 of 21, at about the same cost per task ($0.125, $0.121 and $0.125 at API prices). Earlier runs are in
+[results/](results).
