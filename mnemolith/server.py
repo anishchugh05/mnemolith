@@ -7,6 +7,7 @@ Settings are environment variables; see config.py.
 """
 import hashlib
 import os
+import re
 import subprocess
 import threading
 import uuid
@@ -369,7 +370,7 @@ def core_tool():
 
 
 @core_tool()
-def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "") -> str:
+def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "", new: bool = False) -> str:
     """Save a durable fact about this project so future sessions, in any AI tool, know it.
     Use this, not a built-in memory or notes file, whenever the user asks you to remember something
     about the project.
@@ -379,9 +380,20 @@ def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "") -
     files: repo-relative paths this fact depends on (e.g. ["docker-compose.yml"]), so the memory
     can be flagged when those files change.
     replaces: the id of a memory this fact makes untrue (e.g. "m42"), to save and retire it in one call.
+    new: save it even though a similar memory exists, because it's a separate fact.
     """
     try:
         vector = embed(fact)
+        if not replaces and not new:
+            # Check before saving: re-saving something already known, then retiring the copy, wastes calls.
+            hits = run("MEM.SEARCH", project_name(), 3, "VECTOR", *vector)
+            close = [(mid, float(sc), text) for mid, sc, text in hits
+                     if config.SAME_FACT_SIMILARITY <= float(sc) < 0.97]
+            if close:
+                listed = "\n".join(f"[{mid}] (similarity {sc:.2f}) {text}" for mid, sc, text in close)
+                return ("Not saved: this looks like something already known:\n" + listed +
+                        f"\nIf that covers it, you're done. If yours makes it untrue, call remember again with "
+                        f"replaces=\"{close[0][0]}\". If it's a separate fact, call remember again with new=True.")
         mem_id, outcome, related = add_memory(project_name(), fact, link_files(files) if files else "", vector=vector)
         if outcome == "duplicate":
             return f"Already known as {mem_id}; noted that it came up again. Nothing new was stored."
@@ -408,6 +420,22 @@ def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "") -
         return store_down(e)
 
 
+# Memories about how to run, build or test the project matter to almost every task, but a search for the task
+# itself ("charge in other currencies") rarely finds them. In our evaluation, missing "run tests with `make
+# test`" led the AI to run the tests the wrong way, hit the error, and re-save the fact: several wasted turns.
+_SETUP = re.compile(r"`(make|npm|pnpm|yarn|bun|pytest|python3? -m|uv|cargo|go|mvn|gradle|docker|just)\b[^`]*`"
+                    r"|\b(run|running) (the |all )?tests?\b|\btests? (need|needs|require|requires|must)\b", re.I)
+
+
+def _setup_memories(project: str, already: set, limit: int = 2) -> List[str]:
+    try:
+        rows = run("MEM.LIST", project)
+    except EngineDown:
+        return []
+    return [f"[{mid}] {text}" for mid, _status, _files, text in rows
+            if mid not in already and _SETUP.search(text or "")][:limit]
+
+
 @core_tool()
 def recall(query: str, limit: int = 5) -> str:
     """Search this project's shared memory by meaning. Call it at the start of every task, and whenever
@@ -423,6 +451,9 @@ def recall(query: str, limit: int = 5) -> str:
     lines = [f"[{mid}] (similarity {float(score):.2f}) {text}" for mid, score, text in hits]
     if not lines:
         lines = ["No current memories match this."]
+    basics = _setup_memories(project_name(), {mid for mid, _, _ in hits})
+    if basics:
+        lines += ["", "How to build and test this project (comes with every recall):"] + basics
     just_stale = {line.split("]", 1)[0] for line in stale}
     history = [h for h in past_versions(project_name(), vector) if h.split("]", 1)[0] not in just_stale]
     if history:

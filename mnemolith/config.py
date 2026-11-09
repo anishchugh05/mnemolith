@@ -38,6 +38,11 @@ FAKE_EMBEDDER = _env("MNEMOLITH_EMBEDDER", "MEMORY_EMBEDDER") == "fake"  # testi
 # Existing memories at least this similar to a newly saved one are shown to the AI to judge.
 # Low on purpose: in calibration, "we use Postgres" vs "we migrated to MySQL" scored only 0.30.
 RELATED_SIMILARITY = float(_env("MNEMOLITH_RELATED_SIMILARITY", "MEMORY_RELATED_SIMILARITY", default="0.25"))
+# How similar a new fact must be to an existing memory for remember to stop and say "you already know this"
+# instead of saving it. In our evaluation, re-saved duplicates scored 0.55-0.79 against the memory they
+# repeated, and saving then retiring the copy cost 2-3 extra calls each time. Contradictions score far lower
+# (0.30 above), so they still get saved. remember(..., new=True) saves a separate fact anyway.
+SAME_FACT_SIMILARITY = float(_env("MNEMOLITH_SAME_FACT_SIMILARITY", "MEMORY_SAME_FACT_SIMILARITY", default="0.5"))
 
 
 def project_override() -> str:

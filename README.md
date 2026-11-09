@@ -240,7 +240,7 @@ Installed some other way? Install `mnemolith` the same way, run `mnemolith setup
 
 | Tool | What it does |
 |---|---|
-| `remember(fact, files?, replaces?)` | Saves a durable fact, optionally linked to files. Merges near-identical repeats and shows related memories so the AI can decide whether the new fact replaces one; `replaces="m42"` saves it and retires m42 in one call. |
+| `remember(fact, files?, replaces?, new?)` | Saves a durable fact, optionally linked to files. If it looks like something already known, it says so instead of saving a copy (`new=True` saves it anyway); `replaces="m42"` saves it and retires m42 in one call. |
 | `recall(query, limit?)` | Searches the project's memories by meaning. Checks linked files first, so it never returns a memory whose code changed underneath it. |
 | `explain_memory(id)` | Where a memory came from and its full history. |
 | `replace_memory(old, new)` | Retires an older memory that a newer one makes untrue. |
@@ -491,7 +491,7 @@ crash_test.py                kill -9 crash-safety test
 Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, and `server.json`, commit, then:
 
 ```sh
-git tag v0.3.4 && git push --tags
+git tag v0.3.5 && git push --tags
 ```
 
 Once the release is on PyPI, point the Claude Code plugin at it: bump the version in
