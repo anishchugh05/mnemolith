@@ -47,16 +47,38 @@ MENDER_INSTRUCTIONS = (
     "until the user approves.")
 
 
-def instructions(mender_on: bool) -> str:
-    return INSTRUCTIONS + (MENDER_INSTRUCTIONS if mender_on else "")
+TEAM_INSTRUCTIONS = (
+    "\n- This repo has a team memory: memories shared by everyone who works on it, kept as files in the repo. "
+    "recall shows them first, with ids like team:name. When the user asks you to share something with the team, "
+    "or wants their teammates' AI tools to know it, call share_with_team (with files= it depends on) instead of "
+    "remember or a notes file.")
+
+
+def instructions(mender_on: bool, team_on: bool = False) -> str:
+    return INSTRUCTIONS + (TEAM_INSTRUCTIONS if team_on else "") + (MENDER_INSTRUCTIONS if mender_on else "")
+
+
+def _team_at_startup() -> bool:
+    """Whether the repo this session started in has a team memory this person uses. Worked out before the
+    rest of this module exists, because it decides the instructions the server is created with."""
+    try:
+        start = Path(config.repo_override()).expanduser() if config.repo_override() else Path.cwd()
+        if not start.is_dir():
+            start = Path.cwd()
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=start, capture_output=True, text=True, timeout=5)
+        root = Path(top.stdout.strip()) if top.returncode == 0 and top.stdout.strip() else start
+        return str(root.resolve()) in config.team_repos() and (root / ".mnemolith" / "team").is_dir()
+    except Exception:
+        return False
 
 
 MENDER_ON = config.mender_enabled()  # read once per session: tools appear or not when the AI tool starts
+TEAM_ON = _team_at_startup()  # likewise: share_with_team is only offered where there's a team to share with
 
 try:
-    mcp = MCPServer("mnemolith", instructions=instructions(MENDER_ON), version=__version__)
+    mcp = MCPServer("mnemolith", instructions=instructions(MENDER_ON, TEAM_ON), version=__version__)
 except Exception:  # mcp 1.x has no version argument; set it on the underlying server instead
-    mcp = MCPServer("mnemolith", instructions=instructions(MENDER_ON))
+    mcp = MCPServer("mnemolith", instructions=instructions(MENDER_ON, TEAM_ON))
     try:
         mcp._mcp_server.version = __version__
     except AttributeError:
@@ -480,6 +502,24 @@ def _team_hits(vector: List[str], limit: int, floor: float, own: Optional[list] 
         return []
 
 
+def _team_on_hold() -> List[str]:
+    """A line for recall when team memories are being left out because git couldn't merge two people's changes
+    to them: otherwise the AI just works without them and nobody knows why."""
+    try:
+        from . import team
+        root = repo_root()
+        if not team.joined(root):
+            return []
+        n = sum(1 for m in team.load(root) if team.conflicted(m))
+    except Exception:
+        return []
+    if not n:
+        return []
+    return [f"{n} team {'memory is' if n == 1 else 'memories are'} left out because two people changed "
+            f"{'it' if n == 1 else 'them'} and git couldn't merge the changes. Tell the user: `mnemolith team` shows "
+            f"both versions and which file to fix."]
+
+
 def _team_id(memory_id: str) -> bool:
     return memory_id.strip().startswith("team:")
 
@@ -501,9 +541,12 @@ def recall(query: str, limit: int = 5) -> str:
                         [(mid, text) for mid, _score, text in hits])
     if not lines and not shared:
         lines = ["No current memories match this."]
+    on_hold = _team_on_hold()
     if shared:  # the team's first: they were reviewed, and they're what everyone else's AI is working from
         lines = [TEAM_HEADER] + shared + (["", "Your own memories (only you have these):"] + lines if lines else [])
     shown = {mid for mid, _, _ in hits} | {s.split("]", 1)[0].lstrip("[") for s in shared}
+    if on_hold:
+        lines += [""] + on_hold
     basics = _setup_memories(project_name(), shown)
     if basics:
         lines += ["", "How to build and test this project (comes with every recall):"] + basics
@@ -782,7 +825,8 @@ def share_with_team(memory_id: str = "", fact: str = "", files: Optional[List[st
     Before calling, tell the user: it will be visible to everyone with access to this repo.
 
     memory_id: one of the user's own memories to share (e.g. "m42"); it moves to the team.
-    fact: or a new fact to share directly, with files= it depends on. For starter memories, read the repo and
+    fact: or a new fact to share directly. Always pass files= with the files it depends on: that's how everyone's
+    AI tools learn when it may have gone out of date. For starter memories, read the repo and
     share at most 30 of the most useful facts, one call each.
     What belongs: decisions and their reasons, conventions, who owns what, setup gotchas, promises to partners.
     Not personal preferences, and never passwords, keys or tokens (those are refused)."""
@@ -812,15 +856,7 @@ def share_with_team(memory_id: str = "", fact: str = "", files: Optional[List[st
             f"changes in the repo for the user to review and commit; don't commit them yourself.")
 
 
-def _team_in_use() -> bool:
-    try:
-        from . import team
-        return team.joined(repo_root())
-    except Exception:
-        return False
-
-
-if _team_in_use():
+if TEAM_ON:
     mcp.tool()(share_with_team)
 
 if MENDER_ON:

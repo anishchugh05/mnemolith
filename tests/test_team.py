@@ -277,3 +277,11 @@ def test_a_conflict_shows_both_wordings_and_holds_off_the_index(repo):
     assert not team.index_outdated(repo)  # not until the conflict is settled
     path.write_text("---\nmnemolith: 1\nstatus: active\n---\nDeploys go out on Thursdays.\n")
     assert team.sides(team.find(repo, "deploys-go-out-on-mondays")) is None and team.index_outdated(repo)
+
+
+def test_files_a_memory_names_are_linked_even_if_not_passed(repo):
+    team.init(repo)
+    (repo / "shop").mkdir()
+    (repo / "shop" / "v1.py").write_text("x = 1\n")
+    mem = team.add(repo, "API v1 (shop/v1.py) is frozen: never change its fields.")
+    assert [p for p, _ in mem.files] == ["shop/v1.py"]

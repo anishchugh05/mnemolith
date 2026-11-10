@@ -32,6 +32,16 @@ instead of quietly misleading the next session. Use its tools instead of any bui
 - A stale memory is still true after checking the files: `confirm_memory`.
 - `recall` reports two memories that disagree: `list_conflicts`, then `resolve_conflict`.
 
+## Team memory
+
+If `recall` shows "Team memories", this repo has a shared team memory: files in `.mnemolith/team/memories/` that
+every teammate's AI reads. Treat them like your own memories, and check the code first when one says it's possibly
+outdated.
+
+- To change or retire a team memory, edit its file (`status: retired` retires it). The user reviews and commits it.
+- When the user asks you to share something with the team, and the `share_with_team` tool exists, use it with
+  `files=` the fact depends on. Tell the user it will be visible to everyone with access to the repo. Never commit.
+
 ## When Mender is on
 
 If the tools `list_stale` and `propose_fix` exist, Mender is on. For stale memories, call `list_stale`, read

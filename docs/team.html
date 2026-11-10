@@ -1,0 +1,577 @@
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link
+      href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Cpath d=%27M16 2 29 9 16 16 3 9 16 2Zm-13 14 13 7 13-7M3 23l13 7 13-7%27 fill=%27none%27 stroke=%27%2334594f%27 stroke-width=%272.3%27/%3E%3C/svg%3E"
+      rel="icon"
+    />
+    <meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport" />
+    <meta content="light dark" name="color-scheme" />
+    <meta
+      content="Team memory in Mnemolith: share what your AI learned with everyone on the repo, as plain files reviewed like code. Flagged for everyone when the code changes."
+      name="description"
+    />
+    <title>Team memory — Mnemolith</title>
+    <script>
+      try {
+        const t = localStorage.getItem("mnemolith-theme");
+        if (t === "light" || t === "dark")
+          document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+    <link href="assets/site.css?v=14" rel="stylesheet" />
+    <link
+      as="font"
+      crossorigin=""
+      href="assets/plex-sans.woff2"
+      rel="preload"
+      type="font/woff2"
+    />
+    <meta property="og:title" content="Team memory — Mnemolith" />
+    <meta
+      property="og:description"
+      content="What one person teaches their AI, every teammate&rsquo;s AI knows."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://mnemolith.dev/team.html" />
+    <meta property="og:image" content="https://mnemolith.dev/assets/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Team memory — Mnemolith" />
+    <meta
+      name="twitter:description"
+      content="What one person teaches their AI, every teammate&rsquo;s AI knows."
+    />
+    <meta name="twitter:image" content="https://mnemolith.dev/assets/og-image.png" />
+    <!-- Privacy-friendly visit counts (no cookies): https://aethercache.goatcounter.com -->
+    <script async data-goatcounter="https://aethercache.goatcounter.com/count" data-goatcounter-settings='{"no_onload": true}' src="https://gc.zgo.at/count.js"></script>
+    <script>
+      // Count a visit only when the page is actually shown, not when it's prerendered in case you click.
+      (function () {
+        function count() {
+          if (window.goatcounter && window.goatcounter.count) window.goatcounter.count({ path: location.pathname + location.search });
+          else setTimeout(count, 300);
+        }
+        function shown() { if (document.prerendering) document.addEventListener("prerenderingchange", count, { once: true }); else count(); }
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", shown); else shown();
+      })();
+    </script>
+    <!-- Pages you're likely to open next load in the background when you hover or start a click on their link
+         (same site only; downloads like install.sh are left out). -->
+    <script type="speculationrules">
+      {
+        "prerender": [
+          {
+            "where": {
+              "and": [
+                { "href_matches": "/*" },
+                { "not": { "href_matches": "/*.sh" } },
+                { "not": { "href_matches": "/*.ps1" } },
+                { "not": { "href_matches": "/assets/*" } },
+                { "not": { "selector_matches": "[download], [target]" } }
+              ]
+            },
+            "eagerness": "moderate"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body class="page-mender page-team">
+    <a class="skip" href="#main">Skip to content</a>
+    <div class="wrap">
+      <header class="masthead">
+        <a aria-label="Mnemolith home" class="brand" href="index.html"
+          ><svg aria-hidden="true" class="brand-mark" fill="none" viewBox="0 0 30 32">
+            <path d="M15 2 28 9 15 16 2 9 15 2Z" stroke="currentColor" stroke-width="2"></path>
+            <path d="m2 16 13 7 13-7M2 23l13 7 13-7" stroke="currentColor" stroke-width="2"></path></svg
+          >Mnemolith</a
+        >
+        <nav aria-label="Main navigation">
+          <a href="index.html">Home</a
+          ><a href="how-it-works.html">How it works</a
+          ><a href="install.html">Install</a
+          ><a aria-current="page" href="team.html">Team</a
+          ><a href="mender.html">Mender</a
+          ><a href="roadmap.html">Roadmap</a
+          ><a href="about.html">About</a>
+        </nav>
+        <button aria-label="Switch color theme" class="theme" id="theme-toggle" type="button">
+          <svg aria-hidden="true" fill="none" height="17" viewBox="0 0 20 20" width="17">
+            <path
+              d="M16.7 12.6A7 7 0 0 1 7.4 3.3 7 7 0 1 0 16.7 12.6Z"
+              stroke="currentColor"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+            ></path>
+          </svg>
+        </button>
+      </header>
+    </div>
+
+    <main id="main" tabindex="-1">
+      <!-- Hero -->
+      <section aria-labelledby="hero-title" class="mender-hero team-hero wrap">
+        <div class="mender-hero-copy">
+          <p class="mender-kicker">
+            <span class="badge">New in 0.4</span><span>Team memory, part of Mnemolith</span>
+          </p>
+          <h1 id="hero-title">What one person teaches their AI, the whole team&rsquo;s AI knows.</h1>
+          <p class="mender-lede">
+            Share a memory and it becomes a small file in your repo. Your team
+            reviews it in a pull request like any other change, and from the next
+            pull, everyone&rsquo;s Claude Code, Cursor and Codex know it. When the
+            code it depends on changes, it&rsquo;s flagged for everyone, not just
+            the person who changed it.
+          </p>
+          <p class="mender-install-label">In a repo, with Mnemolith installed:</p>
+          <div class="code-block mender-install">
+            <pre>mnemolith team init</pre>
+            <button type="button" class="copy-button" data-copy="mnemolith team init" aria-label="Copy command">Copy</button>
+          </div>
+          <div class="hero-actions">
+            <a class="button" href="#start">Set it up</a
+            ><a class="text-link" href="#how"
+              >How it works
+              <svg aria-hidden="true" class="link-arrow" fill="none" height="16" viewBox="0 0 20 20" width="16">
+                <path d="M3 10h13m-5-5 5 5-5 5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path></svg></a>
+          </div>
+        </div>
+
+        <figure class="team-pr" aria-label="A pull request that adds one team memory as a file">
+          <figcaption class="team-pr-bar">
+            <span>Pull request</span><span>Add team memory: never cache prices</span>
+          </figcaption>
+          <div class="team-pr-file">
+            <span class="team-pr-path">.mnemolith/team/memories/never-cache-prices.md</span><span class="team-pr-count">+9</span>
+          </div>
+          <pre class="team-pr-diff"><span class="add">---</span><span class="add">mnemolith: 1</span><span class="add">status: active</span><span class="add">author: Priya Shah</span><span class="add">files:</span><span class="add">  - shop/catalog.py@3f2a9c1b04de</span><span class="add">---</span><span class="add fact">Never cache prices: they change during sales, and a</span><span class="add fact">cache served stale prices in March. Batch with get_prices.</span></pre>
+          <p class="team-pr-foot">Mnemolith wrote the file. You commit it. Your team reviews it.</p>
+        </figure>
+      </section>
+
+      <!-- Before / after -->
+      <section aria-labelledby="strip-title" class="mender-strip-section wrap">
+        <h2 class="sr-only" id="strip-title">What changes with team memory</h2>
+        <ol class="mender-strip">
+          <li>
+            <span class="strip-where">Without it</span>
+            <p class="strip-state"><span class="pip stale" aria-hidden="true"></span>Every AI learns it again</p>
+            <p>
+              You told your AI that prices are never cached. Your teammate&rsquo;s
+              AI doesn&rsquo;t know, so it adds a cache on Monday.
+            </p>
+          </li>
+          <li>
+            <span class="strip-where">You share it</span>
+            <p class="strip-state"><span class="pip pending" aria-hidden="true"></span>Reviewed like code</p>
+            <p>
+              The memory becomes a file in a pull request. A teammate approves
+              it, or asks a question, before it reaches anyone.
+            </p>
+          </li>
+          <li>
+            <span class="strip-where">After the merge</span>
+            <p class="strip-state"><span class="pip active" aria-hidden="true"></span>Everyone&rsquo;s AI knows</p>
+            <p>
+              Each teammate&rsquo;s AI gets it in its next session, first in
+              recall, labelled as the team&rsquo;s.
+            </p>
+          </li>
+        </ol>
+      </section>
+
+      <!-- Diagram -->
+      <section aria-labelledby="how-title" class="section wrap team-how" id="how">
+        <div class="section-lead">
+          <h2 id="how-title">How a memory reaches your team.</h2>
+          <p>
+            No server and no account: team memory travels with your code, through
+            git. Each person still keeps their own memories, and decides what to share.
+          </p>
+        </div>
+        <div class="architecture team-diagram">
+          <div class="architecture-top">
+            <span>Your repo, through git</span><span>Mnemolith never commits for you</span>
+          </div>
+          <svg aria-labelledby="team-diagram-title" class="desktop-diagram" role="img" viewBox="0 0 1100 340">
+            <title id="team-diagram-title">
+              Your AI learns something and saves it as your own memory. You share it:
+              Mnemolith shows a visibility warning and runs a secret check, then writes
+              one file in .mnemolith/team/memories in your repo. Your team reviews it in
+              a pull request. Teammates pull, and their AI recalls it. When the code the
+              memory depends on changes, it is flagged as possibly outdated for everyone,
+              and AI tools check the code first until someone confirms or retires it.
+            </title>
+            <defs>
+              <marker id="team-arrow" markerHeight="8" markerWidth="8" orient="auto" refX="6" refY="4" viewBox="0 0 8 8">
+                <path class="arrow-head" d="M0 0 8 4 0 8Z"></path>
+              </marker>
+            </defs>
+            <rect class="box" height="124" rx="4" width="190" x="1" y="20"></rect>
+            <text class="svg-muted" font-size="13" x="20" y="48">You</text>
+            <text font-size="18" x="20" y="78">Your AI learns</text>
+            <text font-size="18" x="20" y="102">something</text>
+            <text class="svg-muted" font-size="13" x="20" y="132">a memory of your own</text>
+
+            <rect class="box" height="124" rx="4" width="190" x="228" y="20"></rect>
+            <text class="svg-muted" font-size="13" x="247" y="48">Share</text>
+            <text font-size="18" x="247" y="78">Warning, then</text>
+            <text font-size="18" x="247" y="102">secret check</text>
+            <text class="svg-muted" font-size="13" x="247" y="132">keys are refused</text>
+
+            <rect class="engine" height="124" rx="4" width="208" x="455" y="20"></rect>
+            <text class="svg-blue" font-size="13" x="474" y="48">In your repo</text>
+            <text class="svg-blue" font-size="18" x="474" y="78">One file per</text>
+            <text class="svg-blue" font-size="18" x="474" y="102">memory</text>
+            <text class="svg-muted" font-size="12" x="474" y="132">.mnemolith/team/memories/</text>
+
+            <rect class="box" height="124" rx="4" width="190" x="700" y="20"></rect>
+            <text class="svg-muted" font-size="13" x="719" y="48">Review</text>
+            <text font-size="18" x="719" y="78">Pull request,</text>
+            <text font-size="18" x="719" y="102">like code</text>
+            <text class="svg-muted" font-size="13" x="719" y="132">git keeps the history</text>
+
+            <rect class="box" height="124" rx="4" width="182" x="917" y="20"></rect>
+            <text class="svg-muted" font-size="13" x="936" y="48">Your team</text>
+            <text font-size="18" x="936" y="78">Their AI</text>
+            <text font-size="18" x="936" y="102">recalls it</text>
+            <text class="svg-muted" font-size="13" x="936" y="132">after git pull</text>
+
+            <path class="connector" d="M191 76h31" marker-end="url(#team-arrow)"></path>
+            <path class="connector" d="M418 76h31" marker-end="url(#team-arrow)"></path>
+            <path class="connector" d="M663 76h31" marker-end="url(#team-arrow)"></path>
+            <path class="connector" d="M890 76h21" marker-end="url(#team-arrow)"></path>
+
+            <path class="connector loop" d="M1008 144v52H170v40"  marker-end="url(#team-arrow)"></path>
+            <text class="svg-muted" font-size="13" x="590" y="186" text-anchor="middle">Later, someone changes the code a memory depends on</text>
+
+            <rect class="stale-box" height="88" rx="4" width="1098" x="1" y="242"></rect>
+            <text class="svg-stale" font-size="13" x="24" y="270">For everyone</text>
+            <text font-size="18" x="24" y="300">Flagged as possibly outdated</text>
+            <text class="svg-muted" font-size="13" x="24" y="320">in recall, in mnemolith team and in the dashboard</text>
+            <path class="connector" d="M372 290h56" marker-end="url(#team-arrow)"></path>
+            <text class="svg-muted" font-size="13" x="450" y="270">Until it&#8217;s settled</text>
+            <text font-size="18" x="450" y="300">AI tools check the code first</text>
+            <text class="svg-muted" font-size="13" x="450" y="320">instead of trusting the old fact</text>
+            <path class="connector" d="M800 290h56" marker-end="url(#team-arrow)"></path>
+            <text class="svg-muted" font-size="13" x="878" y="270">Someone checks</text>
+            <text font-size="18" x="878" y="300">Confirms or retires it</text>
+            <text class="svg-muted" font-size="13" x="878" y="320">a one-line change, reviewed</text>
+          </svg>
+          <svg aria-labelledby="team-diagram-mobile-title" class="mobile-diagram" role="img" viewBox="0 0 310 640">
+            <title id="team-diagram-mobile-title">
+              Your AI learns something. You share it, after a warning and a secret check.
+              It becomes one file in your repo, reviewed in a pull request. Teammates pull,
+              and their AI recalls it. When the code changes, it is flagged as possibly
+              outdated for everyone until someone confirms or retires it.
+            </title>
+            <defs>
+              <marker id="team-arrow-m" markerHeight="8" markerWidth="8" orient="auto" refX="6" refY="4" viewBox="0 0 8 8">
+                <path class="arrow-head" d="M0 0 8 4 0 8Z"></path>
+              </marker>
+            </defs>
+            <rect class="box" height="62" rx="4" width="308" x="1" y="1"></rect>
+            <text class="svg-muted" font-size="12" x="18" y="24">You</text>
+            <text font-size="16" x="18" y="48">Your AI learns something</text>
+            <path class="connector" d="M155 63v21" marker-end="url(#team-arrow-m)"></path>
+            <rect class="box" height="62" rx="4" width="308" x="1" y="90"></rect>
+            <text class="svg-muted" font-size="12" x="18" y="113">Share</text>
+            <text font-size="16" x="18" y="137">Warning, then secret check</text>
+            <path class="connector" d="M155 152v21" marker-end="url(#team-arrow-m)"></path>
+            <rect class="engine" height="74" rx="4" width="308" x="1" y="179"></rect>
+            <text class="svg-blue" font-size="12" x="18" y="202">In your repo</text>
+            <text class="svg-blue" font-size="16" x="18" y="226">One file per memory</text>
+            <text class="svg-muted" font-size="11" x="18" y="244">.mnemolith/team/memories/</text>
+            <path class="connector" d="M155 253v21" marker-end="url(#team-arrow-m)"></path>
+            <rect class="box" height="62" rx="4" width="308" x="1" y="280"></rect>
+            <text class="svg-muted" font-size="12" x="18" y="303">Review</text>
+            <text font-size="16" x="18" y="327">Pull request, like code</text>
+            <path class="connector" d="M155 342v21" marker-end="url(#team-arrow-m)"></path>
+            <rect class="box" height="62" rx="4" width="308" x="1" y="369"></rect>
+            <text class="svg-muted" font-size="12" x="18" y="392">Your team</text>
+            <text font-size="16" x="18" y="416">Their AI recalls it</text>
+            <path class="connector loop" d="M155 431v40" marker-end="url(#team-arrow-m)"></path>
+            <text class="svg-muted" font-size="12" x="168" y="456">when the code changes</text>
+            <rect class="stale-box" height="160" rx="4" width="308" x="1" y="478"></rect>
+            <text class="svg-stale" font-size="12" x="18" y="502">For everyone</text>
+            <text font-size="16" x="18" y="526">Flagged as possibly outdated</text>
+            <text class="svg-muted" font-size="12" x="18" y="556">Until it&#8217;s settled, AI tools check the code first</text>
+            <text class="svg-muted" font-size="12" x="18" y="590">Someone checks</text>
+            <text font-size="16" x="18" y="614">Confirms or retires it</text>
+          </svg>
+        </div>
+        <p class="architecture-note">
+          Teammates without Mnemolith aren&rsquo;t left out: <code>mnemolith.md</code>
+          at the top of the repo lists every team memory in one line, for people
+          and any AI tool to read.
+        </p>
+      </section>
+
+      <!-- Why files -->
+      <section aria-labelledby="why-title" class="section wrap mender-safety">
+        <div class="section-lead">
+          <h2 id="why-title">Plain files, so your team stays in charge.</h2>
+          <p>
+            Team knowledge is too important to live in a black box. Keeping it in
+            the repo means it works with everything your team already does.
+          </p>
+        </div>
+        <div class="safety-list">
+          <div class="safety-row">
+            <h3>Reviewed like code</h3>
+            <p>Every new memory, edit and retirement is a change in a pull request. Nobody&rsquo;s AI learns something the team didn&rsquo;t see.</p>
+          </div>
+          <div class="safety-row">
+            <h3>History for free</h3>
+            <p>Git keeps every version and who wrote it. Retired memories keep their file, so &ldquo;why did we stop caching prices?&rdquo; still has an answer.</p>
+          </div>
+          <div class="safety-row">
+            <h3>Follows your branches</h3>
+            <p>A memory added on a branch exists only there until it merges, so knowledge is reviewed with the code it describes.</p>
+          </div>
+          <div class="safety-row">
+            <h3>Access is repo access</h3>
+            <p>Whoever can see the repo can see its team memory. No accounts, no separate permissions to manage.</p>
+          </div>
+          <div class="safety-row">
+            <h3>One file per memory</h3>
+            <p>Two people adding memories never conflict. If two people edit the same one, Mnemolith shows both versions and keeps it out of recall until it&rsquo;s settled.</p>
+          </div>
+          <div class="safety-row">
+            <h3>Works across tools</h3>
+            <p>Claude Code, Cursor, Codex and Claude Desktop read the same team memory, whatever each teammate prefers.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Safety -->
+      <section aria-labelledby="safety-title" class="section wrap mender-safety">
+        <div class="section-lead">
+          <h2 id="safety-title">Careful about what it shares.</h2>
+          <p>
+            A memory in the repo is visible to everyone who can see the repo, so
+            sharing is always a choice, and these checks run in code, not in a model.
+          </p>
+        </div>
+        <div class="safety-list">
+          <div class="safety-row">
+            <h3>Secrets are refused</h3>
+            <p>Every memory is scanned before it&rsquo;s written. Keys, tokens, passwords and addresses with a password in them never reach the repo. Something that only might be a secret is left for you to decide.</p>
+          </div>
+          <div class="safety-row">
+            <h3>A heads-up before sharing</h3>
+            <p>&ldquo;This memory will be visible to everyone with access to this repo.&rdquo; You can turn the question off once you&rsquo;re used to it, and back on in Settings.</p>
+          </div>
+          <div class="safety-row">
+            <h3>Each person opts in</h3>
+            <p>Cloning a repo doesn&rsquo;t feed its team memory to your AI. You choose with <code>mnemolith team init</code>, and <code>mnemolith team remove</code> undoes it for you alone.</p>
+          </div>
+          <div class="safety-row">
+            <h3>Your AI shares only if you allow it</h3>
+            <p>AI tools can share when you ask, once you&rsquo;ve said they may. Until then, they tell you how to do it yourself.</p>
+          </div>
+          <div class="safety-row">
+            <h3>It never commits</h3>
+            <p>Mnemolith writes files. Committing, pushing and opening the pull request stay with you.</p>
+          </div>
+          <div class="safety-row">
+            <h3>Nothing leaves your machine</h3>
+            <p>No server and no telemetry. Team memory moves only when you push and your teammates pull.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Results -->
+      <section aria-labelledby="eval-title" class="section wrap" id="does-it-help">
+        <div class="section-lead">
+          <h2 id="eval-title">We tested it with two teammates.</h2>
+          <p>
+            Teammate A told their AI something and asked for the team to know it.
+            Teammate B, in their own clone and a fresh session, then got a task
+            that needed it. An automatic check graded every run.
+          </p>
+        </div>
+        <div class="measurement-table">
+          <table>
+            <caption class="sr-only">Tasks done right when a teammate's AI needed what someone else told theirs</caption>
+            <thead>
+              <tr>
+                <th scope="col">Setup</th>
+                <th scope="col">Tasks done right</th>
+                <th scope="col">What happened</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">No memory</th>
+                <td><strong>2 of 4</strong></td>
+                <td>Pointed staging at the production database and skipped refund approval.</td>
+              </tr>
+              <tr>
+                <th scope="row">Mnemolith, personal only</th>
+                <td><strong>2 of 4</strong></td>
+                <td>A&rsquo;s AI remembered, but only for A. B&rsquo;s AI never heard it.</td>
+              </tr>
+              <tr>
+                <th scope="row">A shared CLAUDE.md</th>
+                <td><strong>3 of 4</strong></td>
+                <td>Missed the staging database, which came up in conversation and never made it into the file.</td>
+              </tr>
+              <tr>
+                <th scope="row">Mnemolith, team memory</th>
+                <td><strong>4 of 4</strong></td>
+                <td>A&rsquo;s AI shared each fact as a team memory, and B&rsquo;s AI used it.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="measurement-note">
+          One run per task, so read it as a direction, not a final score. In three
+          more tasks the code changed after sharing, and every setup handled it:
+          in a small repo, Claude reads the code and notices. A team memory session
+          cost about $0.15, a little more than a notes file ($0.12&ndash;0.14).
+          <a href="https://github.com/anishchugh05/mnemolith/blob/main/eval/results/2026-11-10-round3-team.md">The full write-up</a>
+          includes what we changed in the evaluation along the way.
+        </p>
+      </section>
+
+      <!-- Set it up -->
+      <section aria-labelledby="start-title" class="section wrap mender-install-section" id="start">
+        <div class="mender-install-grid">
+          <div>
+            <h2 id="start-title">Set it up in a minute.</h2>
+            <p class="mender-install-note">
+              Team memory comes with Mnemolith 0.4. It&rsquo;s free, and needs:
+            </p>
+            <ul class="needs">
+              <li>Your project in a git repo your team shares</li>
+              <li>Mnemolith on each teammate&rsquo;s computer who wants their AI to use it (<a href="install.html">install</a>). Everyone else can read <code>mnemolith.md</code></li>
+            </ul>
+          </div>
+          <div class="mender-install-steps">
+            <div class="install-step">
+              <span class="step-number">1</span>
+              <div>
+                <h3>Start it in your repo</h3>
+                <div class="code-block">
+                  <pre>mnemolith team init</pre>
+                  <button type="button" class="copy-button" data-copy="mnemolith team init" aria-label="Copy command">Copy</button>
+                </div>
+                <p>It offers to bring in the notes your repo already has in <code>CLAUDE.md</code> or <code>AGENTS.md</code>, leaving out anything that looks like a secret.</p>
+              </div>
+            </div>
+            <div class="install-step">
+              <span class="step-number">2</span>
+              <div>
+                <h3>Share what your team should know</h3>
+                <div class="code-block">
+                  <pre>mnemolith promote m42</pre>
+                  <button type="button" class="copy-button" data-copy="mnemolith promote m42" aria-label="Copy command">Copy</button>
+                </div>
+                <p>Or use <strong>Share with team</strong> in the dashboard. After <code>mnemolith team ai on</code>, you can just ask your AI to share something.</p>
+              </div>
+            </div>
+            <div class="install-step">
+              <span class="step-number">3</span>
+              <div>
+                <h3>Commit, then teammates join</h3>
+                <div class="code-block">
+                  <pre>mnemolith team init</pre>
+                  <button type="button" class="copy-button" data-copy="mnemolith team init" aria-label="Copy command">Copy</button>
+                </div>
+                <p>Commit <code>.mnemolith/team/</code> and <code>mnemolith.md</code> like any change. Each teammate runs the same command in their copy to start using it.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ -->
+      <section aria-labelledby="faq-title" class="faq" id="faq">
+        <div class="wrap faq-grid">
+          <div class="faq-intro">
+            <h2 id="faq-title">Common questions</h2>
+            <p>Short answers about what&rsquo;s shared, who sees it, and what it costs.</p>
+          </div>
+          <div class="faq-list">
+            <details class="faq-item">
+              <summary>Are my own memories shared?</summary>
+              <p>
+                No. They stay on your computer. Only a memory you choose to share
+                goes into the repo, and it moves to the team instead of being
+                copied, so nobody sees the same fact twice.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>Who can see team memories?</summary>
+              <p>
+                Everyone who can see the repo. For a public repo, that&rsquo;s anyone
+                on the internet, so Mnemolith refuses anything that looks like a key
+                or password, and asks before every share unless you turned that off.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>Does it need a server or an account?</summary>
+              <p>
+                No. Team memories are files in your repo, and they move when you push
+                and pull. It works with GitHub, GitLab, Bitbucket or any other git host.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>What if a team memory goes out of date?</summary>
+              <p>
+                Each one remembers the versions of the files it depends on. When one
+                changes, every teammate&rsquo;s AI sees it flagged as possibly
+                outdated and checks the code first. Someone confirms it
+                (<code>mnemolith team confirm</code>) or retires it, and commits that.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>Can I edit a team memory by hand?</summary>
+              <p>
+                Yes. It&rsquo;s a short text file. Edit it like any other file, and
+                run <code>mnemolith team sync</code> to update <code>mnemolith.md</code>.
+                To retire one, set <code>status: retired</code> in its header.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>What about teammates who don&rsquo;t use Mnemolith?</summary>
+              <p>
+                They can read <code>mnemolith.md</code>, a one-line-per-memory list at
+                the top of the repo, and so can any AI tool. Their own setup doesn&rsquo;t
+                change.
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>Does it cost anything?</summary>
+              <p>
+                No. Team memory is part of Mnemolith, which is free and open source.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="wrap">
+      <footer class="footer">
+        <span>© 2026 Anish Chugh</span>
+        <div class="footer-links">
+          <a href="install.html#faq">FAQ</a
+          ><a href="https://github.com/anishchugh05/mnemolith/blob/main/LICENSE">License</a
+          ><a href="privacy.html">Privacy</a
+          ><a href="install.html#contact">Contact</a
+          ><a href="https://github.com/anishchugh05/mnemolith">GitHub</a
+          ><a href="https://pypi.org/project/mnemolith/">PyPI</a
+          ><span>Mnemolith v0.3.5</span>
+        </div>
+      </footer>
+    </div>
+    <div aria-live="polite" class="sr-only" id="copy-status" role="status"></div>
+    <script defer="" src="assets/site.js?v=11"></script>
+  </body>
+</html>

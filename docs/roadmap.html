@@ -10,7 +10,7 @@
     <meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport" />
     <meta content="light dark" name="color-scheme" />
     <meta
-      content="Where Mnemolith is heading: shared team memory reviewed like code, then memory for any folder, plus what's not done yet."
+      content="Where Mnemolith is heading: team memory reviewed like code is here; next, flags in pull requests, then memory for any folder."
       name="description"
     />
     <title>Roadmap — Mnemolith</title>
@@ -21,7 +21,7 @@
           document.documentElement.dataset.theme = t;
       } catch (e) {}
     </script>
-    <link href="assets/site.css?v=13" rel="stylesheet" />
+    <link href="assets/site.css?v=14" rel="stylesheet" />
     <link
       as="font"
       crossorigin=""
@@ -32,7 +32,7 @@
     <meta property="og:title" content="Roadmap — Mnemolith" />
     <meta
       property="og:description"
-      content="Where Mnemolith is heading: shared team memory reviewed like code, then memory for any folder, plus what's not done yet."
+      content="Where Mnemolith is heading: team memory reviewed like code is here; next, flags in pull requests, then memory for any folder."
     />
     <meta property="og:type" content="website" />
     <meta
@@ -53,7 +53,7 @@
     <meta name="twitter:title" content="Roadmap — Mnemolith" />
     <meta
       name="twitter:description"
-      content="Where Mnemolith is heading: shared team memory reviewed like code, then memory for any folder, plus what's not done yet."
+      content="Where Mnemolith is heading: team memory reviewed like code is here; next, flags in pull requests, then memory for any folder."
     />
     <meta
       name="twitter:image"
@@ -124,6 +124,7 @@
           <a href="index.html">Home</a
           ><a href="how-it-works.html">How it works</a
           ><a href="install.html">Install</a
+          ><a href="team.html">Team</a
           ><a href="mender.html">Mender</a
           ><a aria-current="page" href="roadmap.html">Roadmap</a
           ><a href="about.html">About</a>
@@ -156,10 +157,10 @@
         <h1>Where Mnemolith is heading.</h1>
         <div>
           <p>
-            Today Mnemolith gives AI coding tools a shared memory that knows
-            when it&rsquo;s out of date. Next, that memory becomes something a
-            whole team shares and reviews. Then it reaches people who
-            don&rsquo;t write code. Last updated November 5, 2026.
+            Mnemolith gives AI coding tools a shared memory that knows when
+            it&rsquo;s out of date, and now a whole team can share and review
+            it. Next, it reaches people who don&rsquo;t write code. Last updated
+            November 10, 2026.
           </p>
         </div>
       </header>
@@ -167,12 +168,11 @@
         <h2 id="today-title">Today</h2>
         <div>
           <p>
-            Version 0.3.5. One memory shared by Claude Code, Claude Desktop,
-            Cursor and Codex, tied to the files each fact depends on and
-            flagged when those files change.
-            <a href="mender.html">Mender</a> drafts the fix for a stale memory
-            and you approve it, and a local dashboard shows what your AI knows
-            and why.
+            One memory shared by Claude Code, Claude Desktop, Cursor and Codex,
+            tied to the files each fact depends on and flagged when those files
+            change. <a href="mender.html">Mender</a> drafts the fix for a stale
+            memory and you approve it, and a local dashboard shows what your AI
+            knows and why.
           </p>
           <p>
             It helps: on tasks that need knowledge the code doesn&rsquo;t show,
@@ -182,26 +182,33 @@
         </div>
       </section>
       <section aria-labelledby="team-title" class="about-story wrap">
-        <h2 id="team-title">Next: team memory</h2>
+        <h2 id="team-title">Now: team memory</h2>
         <div>
           <p>
-            December to February. Each person keeps their own memories, and
-            each repo gets one shared team memory that every teammate&rsquo;s
-            AI reads, so nobody&rsquo;s AI rediscovers what the team already
-            knows. You promote a memory to the team on purpose, with a clear
-            heads-up that everyone with access to the repo will see it.
+            Version 0.4. Each person keeps their own memories, and each repo can
+            have one shared <a href="team.html">team memory</a> that every
+            teammate&rsquo;s AI reads. You share a memory on purpose, after a
+            heads-up that everyone with access to the repo will see it, and a
+            secret check refuses keys and passwords.
           </p>
           <p>
-            Team memories live in the repo as plain files. Mnemolith writes the
-            file; you commit it and open the pull request yourself, so
-            teammates review a change to team knowledge the same way they
-            review code. Git history is the audit trail, access follows repo
-            permissions, and Mnemolith never commits on its own.
+            Team memories live in the repo as plain files, one per memory.
+            Mnemolith writes the file; you commit it and open the pull request,
+            so teammates review a change to team knowledge the same way they
+            review code. When the code a team memory depends on changes,
+            it&rsquo;s flagged for everyone. Mnemolith never commits on its own.
           </p>
+        </div>
+      </section>
+      <section aria-labelledby="action-title" class="about-story wrap">
+        <h2 id="action-title">Next: catching it in review</h2>
+        <div>
           <p>
-            When a pull request changes files that team memories depend on, a
-            GitHub Action comments on it, so outdated knowledge gets caught in
-            review instead of after the merge.
+            December. A GitHub Action that comments on a pull request when it
+            changes files that team memories depend on, so outdated knowledge
+            gets caught in review instead of after the merge. It will also keep
+            <code>mnemolith.md</code> up to date after each merge, so nobody
+            has to run <code>mnemolith team sync</code> by hand.
           </p>
         </div>
       </section>
@@ -221,9 +228,10 @@
         <h2 id="notyet-title">Not done yet</h2>
         <div>
           <p>
-            The evaluation uses a small sample codebase built for it; real
-            projects are bigger and messier. The engine&rsquo;s log only grows
-            for now.
+            The evaluations use a small sample codebase built for them; real
+            projects are bigger and messier. In that small repo, the outdated
+            flag didn&rsquo;t change outcomes: Claude noticed code changes on its
+            own. The engine&rsquo;s log only grows for now.
           </p>
           <p>
             The local version stays free and open source. Ideas and pushback

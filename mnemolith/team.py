@@ -259,8 +259,7 @@ def _key(root: Path) -> str:
 
 def joined(root: Path) -> bool:
     """Whether this person chose to use this repo's team memory. Stored on their machine, not in the repo."""
-    team = _settings().get("team")
-    return isinstance(team, list) and _key(root) in team
+    return _key(root) in config.team_repos()
 
 
 def _set_joined(root: Path, on: bool) -> None:
@@ -482,8 +481,10 @@ def add(root: Path, text: str, files: Optional[List[str]] = None, allow_soft: bo
         raise TeamError("There's nothing to share: the memory is empty.")
     if not exists(root):
         raise TeamError(f"This repo has no team memory yet. Start one with `mnemolith team init`.")
+    from . import portability
+    named, _missing = portability.mentioned_paths(text, root)  # "v1 (shop/api/v1.py) is frozen" depends on that file
     linked = []
-    for path in dict.fromkeys(server.relative(p, root) for p in (files or []) if p.strip()):
+    for path in dict.fromkeys([server.relative(p, root) for p in (files or []) if p.strip()] + named):
         if Path(path).is_absolute() or ".." in Path(path).parts:
             continue  # only files inside the repo
         now = _now(root, path)
