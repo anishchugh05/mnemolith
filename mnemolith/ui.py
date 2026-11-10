@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 
 import redis
 
-from . import __version__, config, connect, engine, mender, portability, server
+from . import __version__, config, connect, engine, mender, portability, server, team
 from . import repos as repo_tools
 
 PAGE = Path(__file__).resolve().parent / "ui" / "index.html"
@@ -351,15 +351,145 @@ def api_mender_revert(_q, body) -> dict:
 
 
 def api_settings(_q, _body) -> dict:
-    return {"mender": mender.enabled(), "mender_forced": bool(os.environ.get("MNEMOLITH_MENDER"))}
+    return {"mender": mender.enabled(), "mender_forced": bool(os.environ.get("MNEMOLITH_MENDER")),
+            "team_warning": team.warning_on()}
 
 
 def api_settings_save(_q, body) -> dict:
-    if not isinstance(body.get("mender"), bool):
-        raise ApiError(400, "mender must be true or false.")
-    mender.set_enabled(body["mender"])
-    connect.refresh_instructions()
+    if not isinstance(body.get("mender"), bool) and not isinstance(body.get("team_warning"), bool):
+        raise ApiError(400, "mender or team_warning must be true or false.")
+    if isinstance(body.get("mender"), bool):
+        mender.set_enabled(body["mender"])
+        connect.refresh_instructions()
+    if isinstance(body.get("team_warning"), bool):
+        team.set_warning(body["team_warning"])
     return api_settings(None, None)
+
+
+# ---------- team memory: files in the repo (see team.py) ----------
+
+def _team_repo(d: dict) -> Path:
+    project = _need(d, "project")
+    repo = repo_for(project)
+    if repo is None:
+        raise ApiError(409, f"The dashboard doesn't know where the {project} repo is yet. Add it with Add project, "
+                            f"then try again.")
+    return repo
+
+
+def _team_error(e: Exception) -> ApiError:
+    return ApiError(409, str(e))
+
+
+def api_team(q, _body) -> dict:
+    """This repo's team memory, as the files say right now: who can see what, and which memories need a look."""
+    project = _need(q, "project")
+    repo = repo_for(project)
+    if repo is None or repo_tools.git_top(repo) is None:
+        return {"available": False}
+    out = {"available": True, "exists": team.exists(repo), "joined": team.joined(repo), "memories": [],
+           "ai": team.ai_allowed(repo), "warning": team.warning_on(), "folder": team.FOLDER, "index": team.INDEX}
+    if not out["exists"]:
+        return out
+    mems = team.load(repo)
+    live = team.current(repo)
+    close = {}
+    if out["joined"] and live:  # your own memories that say nearly the same thing as a team one
+        own = [(m["id"], m["text"]) for m in all_memories() if m["project"] == project and m["status"] == "active"][:300]
+        try:
+            close = team.overlaps(repo, own, live)
+        except Exception:
+            close = {}
+        texts = dict(own)
+    for m in mems:
+        what = team.changed(m, repo) if m.readable else []
+        item = {"id": m.id, "name": m.name, "text": m.one_line, "status": m.status, "author": m.meta.get("author", ""),
+                "created": m.meta.get("created", ""), "path": m.path.relative_to(repo).as_posix(),
+                "files": [{"path": p, "hash": fp} for p, fp in m.files], "changed": what,
+                "conflicted": team.conflicted(m), "unreadable": not m.readable}
+        if item["conflicted"]:
+            both = team.sides(m)
+            item["sides"] = list(both) if both else None
+            item["text"] = "Two versions of this memory" if both else "This memory is in conflict"
+        if m.id in close:
+            own_id, score = close[m.id]
+            item["close"] = {"id": own_id, "text": texts[own_id], "score": round(score, 2)}
+        out["memories"].append(item)
+    out["count"] = len(live)
+    out["index_outdated"] = team.index_outdated(repo)
+    out["ignored"] = team._ignored(repo)
+    return out
+
+
+def api_team_join(_q, body) -> dict:
+    repo = _team_repo(body)
+    if repo_tools.git_top(repo) is None:
+        raise ApiError(409, "Team memory lives in a git repo, so your team gets it with the code. This folder isn't one.")
+    result = team.init(repo)
+    return {"message": "Started a team memory in this repo. Commit .mnemolith/team/ when you're ready."
+            if result["created"] else "You're using this repo's team memory now. Restart any AI tool that's open."}
+
+
+def api_team_leave(_q, body) -> dict:
+    team.leave(_team_repo(body))
+    return {"message": "Stopped using this repo's team memory on this computer. The repo's files weren't touched."}
+
+
+def api_team_share(_q, body) -> dict:
+    """Shares one of your memories with the team. A finding that only might be a secret comes back as
+    needs_confirm, for a person to look at; a certain one is refused."""
+    memory_id = _need(body, "id")
+    got = server.run("MEM.GET", memory_id)
+    if got is None:
+        raise ApiError(404, "No memory with that id.")
+    project = _pairs(got)["project"]
+    repo = _team_repo({"project": project})
+    if not team.joined(repo):
+        raise ApiError(409, "You aren't using this repo's team memory yet. Turn it on under Team memory first.")
+    try:
+        mem = team.promote(repo, project, memory_id, allow_soft=body.get("allow_soft") is True)
+    except team.SecretFound as e:
+        if e.overridable:
+            return {"needs_confirm": True, "findings": [f"{f['what']} ({f['shown']})" for f in e.findings]}
+        raise _team_error(e)
+    except team.TeamError as e:
+        raise _team_error(e)
+    if body.get("stop_asking") is True:
+        team.set_warning(False)
+    return {"ok": True, "id": mem.id, "path": mem.path.relative_to(repo).as_posix(),
+            "message": f"Shared with your team as {mem.name}. Commit {mem.path.relative_to(repo).as_posix()} and "
+                       f"{team.INDEX} when you're ready."}
+
+
+def _team_change(body, change, done: str) -> dict:
+    repo = _team_repo(body)
+    try:
+        mem = change(repo, _need(body, "name"))
+    except team.TeamError as e:
+        raise _team_error(e)
+    return {"ok": True, "message": done.format(name=mem.name, path=mem.path.relative_to(repo).as_posix())}
+
+
+def api_team_confirm(_q, body) -> dict:
+    return _team_change(body, team.confirm, "Confirmed {name}. Commit {path} so it's confirmed for your team too.")
+
+
+def api_team_retire(_q, body) -> dict:
+    return _team_change(body, team.retire, "Retired {name}. Commit {path} so it's retired for your team too.")
+
+
+def api_team_sync(_q, body) -> dict:
+    changed = team.write_index(_team_repo(body))
+    return {"message": f"Updated {team.INDEX}. Commit it with your other changes." if changed
+            else f"{team.INDEX} is already up to date."}
+
+
+def api_team_ai(_q, body) -> dict:
+    if not isinstance(body.get("on"), bool):
+        raise ApiError(400, "on must be true or false.")
+    team.allow_ai(_team_repo(body), body["on"])
+    return {"message": "Your AI tools may share memories with this team when you ask them to. Restart any that are open."
+            if body["on"] else "Your AI tools can no longer share memories with this team."}
 
 
 def api_memory(q, _body) -> dict:
@@ -367,7 +497,10 @@ def api_memory(q, _body) -> dict:
     if why is None:
         raise ApiError(404, "No memory with that id.")
     d = _pairs(why)
+    repo = repo_for(d["project"])
     return {"fix": mender.fix_info(d["project"], d["id"]),
+            "can_share": bool(repo) and d["status"] == "active" and team.exists(repo) and team.joined(repo),
+            "share_warning": team.warning_on(),
             "id": d["id"], "text": d["text"], "project": d["project"], "status": d["status"],
             "source": d["source"], "session": d["session"], "created_at": int(d["created_at"]),
             "files": _files(d["files"]),
@@ -521,6 +654,14 @@ ROUTES = {
     ("POST", "/api/mender/revert"): api_mender_revert,
     ("POST", "/api/undo"): api_undo,
     ("POST", "/api/projects/unremove"): api_unremove,
+    ("GET", "/api/team"): api_team,
+    ("POST", "/api/team/join"): api_team_join,
+    ("POST", "/api/team/leave"): api_team_leave,
+    ("POST", "/api/team/share"): api_team_share,
+    ("POST", "/api/team/confirm"): api_team_confirm,
+    ("POST", "/api/team/retire"): api_team_retire,
+    ("POST", "/api/team/sync"): api_team_sync,
+    ("POST", "/api/team/ai"): api_team_ai,
     ("GET", "/api/settings"): api_settings,
     ("POST", "/api/settings"): api_settings_save,
 }

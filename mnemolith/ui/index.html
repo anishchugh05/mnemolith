@@ -368,6 +368,25 @@ ol.timeline .details { font-size: var(--t-sm); color: var(--ink-2); margin: 1px 
 .draft-edit input { flex: 1 1 320px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); height: 34px; padding: 0 12px; font-size: var(--t-sm); }
 .draft-edit input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 20%, transparent); }
 .no-draft { font-size: var(--t-xs); color: var(--ink-2); margin: 0 0 12px; }
+/* team memory: the repo's shared files */
+.team-row { display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 13px 16px; }
+.team-row + .team-row { border-top: 1px solid var(--rule); }
+.team-row .pip { margin-top: 8px; }
+.team-row .text { margin: 0; overflow-wrap: anywhere; }
+.team-row.retired .text { color: var(--ink-2); }
+.team-row .by { margin: 2px 0 0; font-size: var(--t-xs); color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 0 14px; }
+.team-row .flag { margin: 6px 0 0; font-size: var(--t-sm); color: var(--stale); overflow-wrap: anywhere; }
+.team-row .close { margin: 6px 0 0; font-size: var(--t-sm); color: var(--ink-2); overflow-wrap: anywhere; }
+.team-row .actions { margin-top: 10px; }
+.team-foot { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; margin-top: 10px; font-size: var(--t-xs); color: var(--ink-2); }
+.team-start { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 18px; }
+.team-start p { margin: 0; font-size: var(--t-sm); color: var(--ink-2); max-width: 62ch; }
+.team-start strong { color: var(--ink); font-weight: 600; }
+.share-form { width: 100%; margin-top: var(--s2); padding: 12px 14px; border-radius: 6px; background: var(--surface-2); font-size: var(--t-sm); corner-shape: squircle; }
+.share-form p { margin: 0 0 10px; }
+.share-form .findings { color: var(--stale); }
+.share-form label { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; color: var(--ink-2); }
+@media (max-width: 640px) { .team-row { grid-template-columns: 9px minmax(0, 1fr); } .team-row .side { grid-column: 2; } .team-start { grid-template-columns: 1fr; } }
 .mender-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 18px; }
 .mender-row p { margin: 4px 0 0; font-size: var(--t-sm); color: var(--ink-2); max-width: 62ch; }
 .mender-row .status { display: flex; align-items: center; gap: 8px; font-size: var(--t-xs); color: var(--ink-2); margin-top: 2px; }
@@ -452,7 +471,7 @@ const state = {
   memories: [], attention: null, selected: null, detail: null,
   version: "", engineUp: true, loadingList: false, listLoaded: false,
   view: "project", source: "local", discovered: null, discovering: false,
-  scan: null, picked: new Set(), tools: null, settings: null,
+  scan: null, picked: new Set(), tools: null, settings: null, team: null,
 };
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -488,6 +507,7 @@ function icon(name, size = 14) {
     import: '<path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/>',
     export: '<path d="M8 10.5v-8M4.5 6 8 2.5 11.5 6M3 13.5h10"/>',
     plug: '<path d="M6 2.5v3M10 2.5v3M4.5 5.5h7v2.5a3.5 3.5 0 0 1-7 0zM8 11.5v2"/>',
+    share: '<circle cx="6" cy="6" r="2.25"/><path d="M2 13c.4-2.2 2-3.5 4-3.5s3.600 1.300 4 3.500M10.500 4.200a2.200 2.200 0 0 1 0 4.100M12 9.900c1.200.500 1.900 1.600 2.100 3.100"/>',
   };
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("width", size); svg.setAttribute("height", size);
@@ -632,6 +652,10 @@ async function loadAttention() {
   state.attention = state.project ? await api(`/api/attention?project=${encodeURIComponent(state.project)}`) : null;
 }
 
+async function loadTeam() {
+  state.team = state.project ? await api(`/api/team?project=${encodeURIComponent(state.project)}`) : null;
+}
+
 let listRequest = 0;
 async function loadMemories() {
   if (!state.project) { state.memories = []; return; }
@@ -672,6 +696,8 @@ async function refreshAll() {
   // counts in the sidebar change when files went stale or Mender drafted fixes during that check
   if (state.attention && (state.attention.just_went_stale || state.attention.mender)) { await loadProjects(); renderProjects(); }
   renderAttention();
+  try { await loadTeam(); } catch (e) { state.team = null; }
+  renderTeam();
   await loadMemories();
   if (state.selected) {
     try { state.detail = await api(`/api/memory?id=${encodeURIComponent(state.selected)}`); renderDetail(); } catch (e) {}
@@ -681,11 +707,11 @@ async function refreshAll() {
 async function selectProject(name) {
   showView("project");
   state.project = name; state.q = ""; state.filter = "any"; state.selected = null; state.detail = null;
-  state.memories = []; state.listLoaded = false; state.attention = null;
+  state.memories = []; state.listLoaded = false; state.attention = null; state.team = null;
   try { sessionStorage.setItem("mnemolith-project", name); } catch (e) {}
   document.querySelector(".app").classList.remove("has-detail");
   const search = document.getElementById("search"); if (search) search.value = "";
-  renderProjects(); renderHead(); renderAttention(); renderList();
+  renderProjects(); renderHead(); renderAttention(); renderTeam(); renderList();
   try { await refreshAll(); } catch (e) { notify(e.message); }
 }
 
@@ -1144,6 +1170,12 @@ function renderTools() {
   const on = state.settings && state.settings.mender;
   const toggle = h("button", { class: on ? "btn" : "btn primary", type: "button", disabled: state.settings ? null : true,
     onclick: () => saveMender(!on, toggle) }, on ? "Turn off" : "Turn on");
+  const warn = state.settings && state.settings.team_warning;
+  const warnToggle = h("button", { class: "btn", type: "button", disabled: state.settings ? null : true, onclick: async () => {
+    warnToggle.disabled = true;
+    try { state.settings = await api("/api/settings", { team_warning: !warn }); renderTools(); }
+    catch (e) { notify(e.message); warnToggle.disabled = false; }
+  } }, warn ? "Turn off" : "Turn on");
   put(view, head,
     h("section", { "aria-labelledby": "tools-h" }, toolsIntro, h("div", { class: "panel" }, rows)),
     h("section", { "aria-labelledby": "mender-h" },
@@ -1155,6 +1187,13 @@ function renderTools() {
           state.settings && state.settings.mender_forced ? h("p", {}, "MNEMOLITH_MENDER is set where the dashboard runs, so it decides.") : null,
           on ? h("p", {}, "AI tools offer to draft fixes from their next session. Restart any that are open.") : null),
         toggle)),
+    h("section", { "aria-labelledby": "teamset-h" },
+      h("h2", { class: "section", id: "teamset-h" }, "Team memory"),
+      h("p", { class: "lede" }, "Sharing a memory with your team makes it visible to everyone with access to the repo."),
+      h("div", { class: "panel mender-row" },
+        h("div", {}, h("span", { class: "name", style: "font-weight:500" }, "Ask before sharing a memory"),
+          h("span", { class: "status" }, pip(warn ? "active" : "retired"), state.settings ? (warn ? "On" : "Off") : "Checking…")),
+        warnToggle)),
     h("section", { "aria-labelledby": "backup-h" },
       h("h2", { class: "section", id: "backup-h" }, "Keep a copy"),
       h("p", { class: "lede" }, "Download every project’s memories, with their linked files and history, as one JSON file."),
@@ -1299,6 +1338,128 @@ function renderAttention() {
   }
 }
 
+// ---------- team memory ----------
+// Team memories are files in the repo (.mnemolith/team/), shared by everyone who can see it. The dashboard only
+// writes those files: committing and reviewing them stays with the person.
+async function teamAct(button, path, body) {
+  button.disabled = true;
+  try {
+    const r = await api(path, body);
+    notify(r.message);
+    await refreshAll();
+  } catch (e) { notify(e.message); button.disabled = false; }
+}
+
+function renderTeam() {
+  const sec = document.getElementById("team");
+  if (!sec) return;
+  const t = state.team;
+  if (!state.project || !t || !t.available) { put(sec); sec.hidden = true; return; }
+  sec.hidden = false;
+  const project = state.project;
+  const live = t.memories.filter((m) => m.status === "active" && !m.unreadable && !m.conflicted);
+  const flagged = live.filter((m) => m.changed.length).length + t.memories.filter((m) => m.conflicted).length;
+  const head = h("h2", { class: "section", id: "team-h" }, "Team memory",
+    flagged ? h("span", { class: "count", "aria-label": plural(flagged, "memory needs", "memories need") + " a look" }, flagged) : null);
+
+  if (!t.exists || !t.joined) {
+    const go = h("button", { class: "btn primary", type: "button", onclick: () => teamAct(go, "/api/team/join", { project }) },
+      t.exists ? "Use team memory" : "Start a team memory");
+    put(sec, head, h("div", { class: "panel team-start" },
+      t.exists
+        ? h("p", {}, h("strong", {}, `This repo has a team memory with ${plural(t.count, "memory", "memories")}. `),
+            "They were written by the people who work on this repo. Using them only changes your own setup: your AI tools get them next to your own memories.")
+        : h("p", {}, h("strong", {}, "Share what your AI knows with your team. "),
+            `A team memory is a folder of plain files in this repo (${t.folder}/) that everyone’s AI tools read. You choose what goes in, and it’s reviewed and committed like code.`),
+      go));
+    return;
+  }
+
+  const rows = t.memories.map((m) => {
+    const kind = m.conflicted ? "conflict" : m.status !== "active" || m.unreadable ? "retired" : m.changed.length ? "stale" : "active";
+    const actions = h("div", { class: "actions" });
+    if (kind === "stale") {
+      const ok = h("button", { class: "btn primary", type: "button", onclick: () => teamAct(ok, "/api/team/confirm", { project, name: m.name }) }, "Still true");
+      const retire = h("button", { class: "btn", type: "button", onclick: () => teamAct(retire, "/api/team/retire", { project, name: m.name }) }, "Retire");
+      actions.append(ok, retire);
+    }
+    if (m.close && kind !== "retired") {
+      const mine = h("button", { class: "btn", type: "button",
+        onclick: () => act(mine, "/api/retire", { id: m.close.id, reason: `the team memory ${m.id} covers this` }, `${m.close.id} retired: the team memory covers it.`) },
+        `Retire mine (${m.close.id})`);
+      actions.append(mine);
+    }
+    return h("div", { class: `team-row ${kind}` }, pip(kind),
+      h("div", {},
+        h("p", { class: "text" }, richText(m.text)),
+        h("p", { class: "by" }, h("span", { class: "mono", title: m.path }, m.name),
+          m.author ? h("span", {}, `by ${m.author}`, m.created ? `, ${m.created}` : "") : null,
+          m.files.length ? h("span", { class: "mono" }, m.files.map((f) => f.path).join(", ")) : null),
+        m.conflicted && m.sides ? h("div", { class: "pair", style: "margin-top:8px" },
+          h("div", {}, h("span", { class: "label" }, "Yours"), h("p", {}, richText(m.sides[0]))),
+          h("div", {}, h("span", { class: "label" }, "Theirs"), h("p", {}, richText(m.sides[1])))) : null,
+        m.conflicted ? h("p", { class: "flag" }, "Two people changed this memory and git couldn’t merge them. Open ", h("span", { class: "mono" }, pathNodes(m.path)), ", keep the right wording, and remove the conflict markers. Your AI tools don’t see it until then.") : null,
+        m.unreadable ? h("p", { class: "flag" }, "Written by a newer Mnemolith. Update Mnemolith to read it.") : null,
+        kind === "stale" ? h("p", { class: "flag" }, `Possibly outdated for everyone: ${m.changed.join(", ")} since this was confirmed.`) : null,
+        m.close && kind !== "retired" ? h("p", { class: "close" }, "Close to your own ", h("span", { class: "mono" }, m.close.id), `: “${m.close.text}”. If they say the same thing, retire yours; if they disagree, talk to your team.`) : null,
+        actions.childNodes.length ? actions : null),
+      h("span", { class: "side" }, kind === "retired" ? h("span", { class: "word retired" }, m.unreadable ? "unreadable" : m.status)
+        : kind === "active" ? h("button", { class: "linkish", type: "button", onclick: (e) => teamAct(e.currentTarget, "/api/team/retire", { project, name: m.name }) }, "Retire") : null));
+  });
+
+  const ai = h("button", { class: "linkish", type: "button", onclick: () => teamAct(ai, "/api/team/ai", { project, on: !t.ai }) },
+    t.ai ? "Stop letting AI tools share" : "Let AI tools share when I ask");
+  const leave = h("button", { class: "linkish", type: "button", onclick: () => teamAct(leave, "/api/team/leave", { project }) }, "Stop using team memory");
+  const sync = t.index_outdated ? h("button", { class: "btn", type: "button", onclick: () => teamAct(sync, "/api/team/sync", { project }) }, `Update ${t.index}`) : null;
+  put(sec, head,
+    h("p", { class: "lede" }, `Shared with everyone on this repo, as files in ${t.folder}/. To share one of your own memories, open it below and choose Share with team. Mnemolith never commits: changes here are yours to review and commit.`),
+    t.ignored ? h("p", { class: "draft-warn", style: "margin:0 0 12px" }, `${t.folder}/ is ignored by this repo’s .gitignore, so it won’t reach your team until that’s changed.`) : null,
+    rows.length ? h("div", { class: "panel" }, rows)
+                : h("div", { class: "panel calm" }, pip("active"), h("span", {}, h("strong", {}, "Nothing shared yet. "), "Open one of your memories below and choose Share with team.")),
+    h("div", { class: "team-foot" },
+      sync, t.index_outdated ? h("span", {}, `${t.index} (the one-line list for teammates without Mnemolith) doesn’t match these files any more.`) : null,
+      h("span", {}, t.ai ? "AI tools may share when you ask." : "Only you can share."), ai, leave));
+}
+
+// Sharing asks first, unless you turned the question off: the memory becomes visible to everyone on the repo.
+function shareForm(d, container) {
+  const trigger = container.querySelector(".share-trigger");
+  const stop = h("input", { type: "checkbox", id: "share-stop" });
+  const findings = h("p", { class: "findings", hidden: true });
+  let allowSoft = false;
+  const send = async () => {
+    go.disabled = true;
+    try {
+      const r = await api("/api/team/share", { id: d.id, allow_soft: allowSoft, stop_asking: stop.checked });
+      if (r.needs_confirm) {
+        allowSoft = true;
+        findings.hidden = false;
+        findings.textContent = `Check this first: it looks like it contains ${r.findings.join("; ")}. Only share it if you’re sure none of that is a secret.`;
+        go.textContent = "It’s not a secret, share it";
+        go.disabled = false;
+        form.hidden = false; trigger.hidden = true;
+        return;
+      }
+      notify(r.message);
+      closeDetail();
+      await refreshAll();
+    } catch (e) {
+      notify(e.message); go.disabled = false;
+      if (form.hidden) { form.remove(); trigger.hidden = false; }
+    }
+  };
+  const go = h("button", { class: "btn primary", type: "button", onclick: send }, "Share with team");
+  const cancel = h("button", { class: "btn", type: "button", onclick: () => { form.remove(); trigger.hidden = false; trigger.focus(); } }, "Cancel");
+  const form = h("div", { class: "share-form", role: "group", "aria-label": `Share ${d.id} with your team` },
+    h("p", {}, "This memory will be visible to everyone with access to this repo. If the repo is public, that’s anyone on the internet. It moves out of your own memories into the team’s."),
+    findings,
+    d.share_warning ? h("label", { for: "share-stop" }, stop, "Don’t show this again") : null,
+    h("div", { class: "actions" }, go, cancel));
+  trigger.hidden = true;
+  container.append(form);
+  if (!d.share_warning) { form.hidden = true; send(); } else go.focus();
+}
+
 function renderTabs() {
   const p = state.projects.find((x) => x.name === state.project);
   const c = p ? p.counts : { active: 0, stale: 0, retired: 0, superseded: 0 };
@@ -1380,6 +1541,7 @@ function renderDetail() {
       onclick: () => act(confirm, "/api/confirm", { id: d.id }, `${d.id} is active again.`) }, "Still true");
     actions.append(confirm);
   } else {
+    if (d.can_share) actions.append(h("button", { class: "btn with-icon share-trigger", type: "button", onclick: () => shareForm(d, actions) }, icon("share", 14), "Share with team…"));
     actions.append(h("button", { class: "btn retire-trigger", type: "button", onclick: () => retireForm(d, actions) }, "Retire…"));
   }
   put(aside,
@@ -1434,9 +1596,10 @@ function renderShell() {
       h("div", { class: "page", id: "project-view" },
       h("div", { class: "page-head", id: "head" }),
       h("section", { id: "attention", "aria-labelledby": "attention-h" }),
+      h("section", { id: "team", "aria-labelledby": "team-h", hidden: true }),
       h("section", { "aria-labelledby": "mem-h" },
         h("h2", { class: "section", id: "mem-h" }, "Memories"),
-        h("p", { class: "lede" }, "Everything your AI tools saved for this project. They only see the active ones."),
+        h("p", { class: "lede" }, "Everything your AI tools saved for this project, on this computer. They only see the active ones."),
         h("div", { class: "toolbar" }, h("div", { class: "search" }, icon("search", 15), search, slash),
           h("div", { class: "tabs", id: "tabs", role: "group", "aria-label": "Filter by status" })),
         h("div", { id: "list" })))),
@@ -1464,7 +1627,7 @@ let lastRefresh = 0;
 function refreshInBackground() {
   if (!TOKEN || state.view !== "project" || !state.project || document.hidden) return;
   if (Date.now() - lastRefresh < 5000) return;
-  if (document.querySelector(".retire-form, .draft-edit") || typing(document.activeElement)) return;
+  if (document.querySelector(".retire-form, .draft-edit, .share-form") || typing(document.activeElement)) return;
   lastRefresh = Date.now();
   refreshAll().catch(() => {});
 }
@@ -1487,7 +1650,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) refr
   }
   renderShell();
   if (!state.projects.length) { renderProjects(); openAdd(true); return; }
-  renderProjects(); renderHead(); renderAttention(); renderList();
+  renderProjects(); renderHead(); renderAttention(); renderTeam(); renderList();
   try { await refreshAll(); } catch (e) { notify(e.message); }
 })();
 </script>
