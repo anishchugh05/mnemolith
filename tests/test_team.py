@@ -130,6 +130,11 @@ def test_embeddings_are_cached_between_sessions(repo, monkeypatch):
     "admin password: hunter2",
     "api_key = 9f8a7b6c5d",
     "-----BEGIN RSA PRIVATE KEY-----",
+    "The admin password is hunter2",
+    "The staging token was ab12cd34ef56",
+    "Local login uses pwd=Summer2024!",
+    "the password for admin is Tr0ub4dor&3",
+    "Our API key is 9f8a7b6c5d4e",
 ])
 def test_real_looking_secrets_are_always_refused(text):
     found = team.scan_secrets(text)
@@ -146,6 +151,13 @@ def test_real_looking_secrets_are_always_refused(text):
     "Passwords are hashed with bcrypt, cost 12.",
     "We use pnpm 9, not npm. See package.json.",
     "Staging is https://staging.example.com/admin",
+    "The admin password is stored in 1Password, ask Priya",
+    "The password is required for every login",
+    "The token is rotated every 30 days",
+    "The password is never logged",
+    "Ask Priya for the staging password, it is not stored anywhere",
+    "The Stripe key is read from STRIPE_KEY in the environment",
+    "The API key is $STRIPE_KEY in CI",
 ])
 def test_talking_about_secrets_is_fine(text):
     assert team.scan_secrets(text) == []
@@ -285,3 +297,8 @@ def test_files_a_memory_names_are_linked_even_if_not_passed(repo):
     (repo / "shop" / "v1.py").write_text("x = 1\n")
     mem = team.add(repo, "API v1 (shop/v1.py) is frozen: never change its fields.")
     assert [p for p, _ in mem.files] == ["shop/v1.py"]
+
+
+def test_a_plain_word_password_is_left_for_a_person(repo):
+    found = team.scan_secrets("The wifi password is swordfish")
+    assert found and not any(f["hard"] for f in found)

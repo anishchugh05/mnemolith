@@ -387,6 +387,16 @@ _HARD = [
 ]
 _ASSIGNED = re.compile(r"(?i)\b(password|passwd|pwd|passphrase|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|"
                        r"credentials?)\b[\"'`]?\s*[=:]\s*[\"'`]?([^\s\"'`,;]{4,})")
+# The same, said in words: "the admin password is hunter2", "staging token was abc123". Common words after "is"
+# ("the password is stored in Vault", "the token is required") are how people talk about a secret, not the secret.
+_SAID = re.compile(r"(?i)\b(password|passwd|pwd|passphrase|secret|token|api[ _-]?key|access[ _-]?key|private[ _-]?key|"
+                   r"credentials?)(?:\s+(?:for|of|on|to)\s+[\w.@/-]+)?\s+(?:is|was|=|:)\s+[\"'`]?([^\s\"'`,;]{4,})")
+_WORDS = re.compile(r"^(?:[a-z]+(?:ed|ing|ly|able|ible)|stored|kept|set|read|in|on|at|the|an|not|never|always|"
+                    r"only|now|still|same|different|available|missing|wrong|correct|valid|invalid|empty|blank|"
+                    r"also|just|from|with|what|where|whatever|unique|random|long|short|strong|weak|secret|private|"
+                    r"public|shared|sent|reset|unset|rotated|per|each|every|one|two|three|four|five|this|that|"
+                    r"there|here|kept|held|done|gone|due|case|less|more|most|much|many|some|any|none|null|"
+                    r"true|false|optional|required|changeme|redacted|hidden|example)$")
 _PLACEHOLDER = re.compile(r"^(?:[$<{(\[%].*|[A-Z][A-Z0-9_]*|\*+|[xX]+|\.+|(?i:none|null|true|false|required|optional|"
                           r"changeme|redacted|hidden|example|your[\w-]*|process\.env\S*|os\.environ\S*|env\S*))$")
 _SOFT = [
@@ -418,6 +428,12 @@ def scan_secrets(text: str) -> List[dict]:
         if _PLACEHOLDER.match(value):
             continue  # "token: $GITHUB_TOKEN", "password = <ask ops>": where a secret lives, not the secret
         mixed = bool(re.search(r"\d", value) and re.search(r"[A-Za-z]", value))
+        add(f"a {m.group(1).lower()} written out", mixed, m.start(2), m.start(2) + len(value))
+    for m in _SAID.finditer(text):
+        value = m.group(2).rstrip(".)!?")
+        if len(value) < 4 or _PLACEHOLDER.match(value) or _WORDS.match(value):
+            continue
+        mixed = bool(re.search(r"\d|[^\w]", value) and re.search(r"[A-Za-z]", value))
         add(f"a {m.group(1).lower()} written out", mixed, m.start(2), m.start(2) + len(value))
     for what, pattern in _SOFT:
         for m in pattern.finditer(text):

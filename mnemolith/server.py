@@ -477,8 +477,7 @@ def _setup_memories(project: str, already: set, limit: int = 2) -> List[str]:
 
 # ---------- team memory: shared files in the repo (see team.py) ----------
 
-TEAM_HEADER = ("Team memories (shared by everyone on this repo, as files in .mnemolith/team/memories/; to change "
-               "one, edit its file):")
+TEAM_HEADER = "Team memories (shared by everyone on this repo; each line below is the whole memory):"
 
 
 def _team_hits(vector: List[str], limit: int, floor: float, own: Optional[list] = None) -> List[str]:
