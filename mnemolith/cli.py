@@ -837,62 +837,108 @@ def cmd_team(args) -> int:
     return 0
 
 
+def _choose_starter_tool(tools, wanted: str = ""):
+    """Which installed AI tool drafts the starter memories: the one asked for, the only one there, or the user's
+    pick. None to skip."""
+    if wanted:
+        match = [t for t in tools if t[0] == wanted]
+        if not match:
+            from . import team
+            label = dict(team.STARTER_TOOLS_BY).get(wanted, wanted)
+            names = ", ".join(t[1] for t in tools) or "none"
+            print(f"{label} is installed but doesn't start (`{wanted} --version` fails), so it can't draft. Reinstall it, "
+                  f"or use another tool." if label in team.BROKEN else
+                  f"{label} isn't installed here (or isn't on PATH). Ready to use: {names}.")
+        return match[0] if match else None
+    if len(tools) == 1:
+        return tools[0] if _ask(f"Draft starter memories with {tools[0][1]}?") else None
+    print("Which AI tool should draft them?")
+    for n, (_key, name, _path) in enumerate(tools, 1):
+        print(f"  {n}. {name}")
+    try:
+        answer = input(f"Pick 1-{len(tools)}, or press Enter to skip: ").strip()
+    except EOFError:
+        return None
+    return tools[int(answer) - 1] if answer.isdigit() and 1 <= int(answer) <= len(tools) else None
+
+
 def _offer_starters(root, args, asked_for: bool = False) -> bool:
-    """Has the user's own Claude Code read the repo and draft starter team memories. Mnemolith has no AI of its
-    own, so this is the one place it runs someone else's: only after asking, since it uses their plan."""
-    import shutil
+    """Has the user's own AI tool (Claude Code, Codex or Cursor) read the repo and draft starter team memories.
+    Mnemolith has no AI of its own, so this is the one place it runs someone else's: only after asking, since it
+    uses their plan."""
     import subprocess
     import tempfile
     from pathlib import Path
+    from contextlib import nullcontext
     from . import team
-    claude = shutil.which("claude")
-    if not claude:
-        if asked_for:
-            print("Drafting starter memories uses Claude Code, which isn't installed here. With another AI tool: run\n"
-                  "`mnemolith team ai on`, restart the tool, and ask it to \"draft starter team memories for this repo\".")
-        else:
-            print("\nTo have your AI tool draft starter memories: run `mnemolith team ai on`, restart the tool, and ask it\n"
-                  "to \"draft starter team memories for this repo\".")
+    wanted = getattr(args, "with_tool", None) or ""
+    tools = team.starter_tools(include_all=bool(wanted))
+    if not tools:
+        print(("" if asked_for else "\n") + "To have an AI tool draft starter memories, install Claude Code or "
+              "Cursor's command-line agent (Codex is experimental: `--with codex`). Or with any AI tool: run `mnemolith team ai on`, restart it, and ask it to "
+              "\"draft starter team memories for this repo\".")
         return False
     if not asked_for:
         if args.yes or not sys.stdin.isatty():
-            print("\n`mnemolith team draft` has Claude Code read this repo and draft starter memories for your team.")
+            print("\n`mnemolith team draft` has your AI tool read this repo and draft starter memories for your team.")
             return False
-        print(f"\nClaude Code can read this repo now and draft up to {team.MAX_IMPORT} starter memories for your team:\n"
-              f"how to build and test it, its conventions, what not to change. It uses your Claude plan once, takes a\n"
-              f"few minutes, and can only read files and add team memories. You review everything before committing.")
-        if not _ask("Draft starter memories with Claude Code?"):
-            print("Skipped. `mnemolith team draft` does this later.")
-            return False
+        print(f"\nYour AI tool can read this repo now and draft up to {team.MAX_IMPORT} starter memories for your team:\n"
+              f"how to build and test it, its conventions, what not to change. It uses your plan with that tool once,\n"
+              f"takes a few minutes, and is kept to reading files and adding team memories. You review everything\n"
+              f"before committing.")
+    elif not wanted and len(tools) > 1 and not sys.stdin.isatty():
+        wanted = tools[0][0]
+    chosen = _choose_starter_tool(tools, wanted) if (wanted or sys.stdin.isatty()) else tools[0]
+    if not chosen:
+        print("Skipped. `mnemolith team draft` does this later.")
+        return False
+    key, name, binary = chosen
     before = {m.name for m in team.load(root)}
-    print("Claude Code is reading the repo. This usually takes a few minutes (Ctrl+C stops it and keeps what it wrote)...")
-    with tempfile.TemporaryDirectory() as tmp:
-        cmd = team.starter_command(root, claude, Path(tmp) / "mcp.json")
-        try:
-            done = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=1500)
-            problem = "" if done.returncode == 0 else (done.stdout + done.stderr).strip()[-400:]
-        except KeyboardInterrupt:
-            problem = "Stopped."
-        except subprocess.TimeoutExpired:
-            problem = "It took too long, so it was stopped."
-        except OSError as e:
-            problem = str(e)
+    state = team.git_state(root)
+    print(f"{name} is reading the repo. This usually takes a few minutes (Ctrl+C stops it and keeps what it wrote)...")
+    problem = ""
+    said = ""
+    try:
+        with tempfile.TemporaryDirectory() as tmp, (team.CursorServer(root) if key == "cursor" else nullcontext()):
+            cmd = team.starter_command(root, key, binary, Path(tmp) / "mcp.json")
+            try:
+                done = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=1500,
+                                      stdin=subprocess.DEVNULL)
+                said = (done.stdout + "\n" + done.stderr).strip()
+                problem = "" if done.returncode == 0 else said[-400:]
+            except KeyboardInterrupt:
+                problem = "Stopped."
+            except subprocess.TimeoutExpired:
+                problem = "It took too long, so it was stopped."
+            except OSError as e:
+                problem = str(e)
+    except team.TeamError as e:
+        print(e)
+        return False
     team.write_index(root)
     made = [m for m in team.load(root) if m.name not in before]
     if problem:
         low = problem.lower()
         if "limit" in low and ("hit" in low or "reset" in low or "usage" in low):
-            print("You've hit your Claude usage limit, so Claude Code stopped. Run `mnemolith team draft` once it resets.")
-        elif "auth" in low and ("login" in low or "log in" in low) and "warning" not in low.split("\n")[0]:
-            print("Claude Code isn't signed in. Run `claude auth login`, then `mnemolith team draft`.")
+            print(f"You've hit your {name} usage limit, so it stopped. Run `mnemolith team draft` once it resets.")
+        elif ("auth" in low or "log in" in low or "login" in low or "sign in" in low) and "warning:" not in low[:20]:
+            print(f"{name} doesn't seem to be signed in. Sign in to it, then run `mnemolith team draft --with {key}`.")
         else:
             first = next((line for line in problem.splitlines() if line.strip() and not line.startswith("Warning:")),
                          problem.splitlines()[0] if problem else "")
-            print(f"Claude Code didn't finish: {first[:300]}\n`mnemolith team draft` tries again.")
+            print(f"{name} didn't finish: {first[:300]}\n`mnemolith team draft --with {key}` tries again.")
+    stray = team.outside_changes(root, state)
+    if stray:
+        print(f"\n!! {name} changed files it shouldn't have: {', '.join(stray[:8])}" + (" and more" if len(stray) > 8 else "")
+              + "\n   Look at them with `git diff` and undo what you don't want (`git checkout -- <file>`).")
     if not made:
-        print("No starter memories were added." + ("" if problem else " Claude Code found nothing it was sure enough to share."))
+        print("No starter memories were added.")
+        if not problem:
+            tail = [line for line in said.splitlines() if line.strip()][-15:]
+            print(f"{name} finished without sharing any. The end of what it said:\n" +
+                  ("\n".join("  | " + line[:200] for line in tail) if tail else "  (nothing)"))
         return False
-    print(f"Claude Code drafted {len(made)} starter {'memory' if len(made) == 1 else 'memories'}:")
+    print(f"{name} drafted {len(made)} starter {'memory' if len(made) == 1 else 'memories'}:")
     for m in made:
         text = m.one_line if len(m.one_line) <= 110 else m.one_line[:109].rstrip() + "…"
         print(f"  - {text}" + (f"   [{', '.join(p for p, _ in m.files)}]" if m.files else ""))
@@ -947,6 +993,13 @@ def _offer_import(root, args, asked_for: bool = False) -> bool:
 
 
 def cmd_serve(args) -> int:
+    import os
+    if getattr(args, "repo", None):
+        os.environ["MNEMOLITH_REPO"] = args.repo
+    if getattr(args, "starter", None):
+        from . import team
+        os.environ[team.STARTER_ENV] = str(args.starter)  # a capped run that drafts starter team memories
+        os.environ.setdefault("MNEMOLITH_SOURCE", "starter")
     from .server import serve
     serve()
     return 0
@@ -1021,7 +1074,7 @@ def main(argv=None) -> None:
                             "draft", "check", "action", "ai", "remove"],
                    help="init: start one here, or use the one that's here. confirm/retire <name>: a memory is still "
                         "true, or no longer is. sync: rebuild mnemolith.md. import: add notes from CLAUDE.md and "
-                        "AGENTS.md. draft: have Claude Code read the repo and draft starter memories. edit <name> \"new "
+                        "AGENTS.md. draft [--with claude|codex|cursor]: have your AI tool read the repo and draft starter memories. edit <name> \"new "
                         "wording\". keep <name> mine|theirs: settle a merge conflict. unshare <name>: take a memory back. "
                         "check: which memories this branch may have made out of date. action: add the GitHub workflow "
                         "that runs check on pull requests. ai on|off: let your AI tools share when you ask. remove: "
@@ -1032,6 +1085,8 @@ def main(argv=None) -> None:
     p.add_argument("--base", help="with check: the branch to compare with (default origin/main)")
     p.add_argument("--markdown", action="store_true", help="with check: print a pull request comment, or nothing")
     p.add_argument("--strict", action="store_true", help="with check: exit with an error if any memory is affected")
+    p.add_argument("--with", dest="with_tool", choices=["claude", "codex", "cursor"],
+                   help="with draft: which AI tool drafts the starter memories")
     p.add_argument("--yes", "-y", action="store_true", help="don't ask for confirmation")
     p.set_defaults(func=cmd_team)
     p = sub.add_parser("promote", help="share one of your memories with your team (it moves to the repo's team memory)")
@@ -1045,7 +1100,10 @@ def main(argv=None) -> None:
     p.add_argument("--port", type=int, help="port for the dashboard (default 7381)")
     p.add_argument("--no-open", action="store_true", help="don't open a browser, just print the link")
     p.set_defaults(func=lambda a: __import__("mnemolith.ui", fromlist=["serve"]).serve(a.port, not a.no_open))
-    sub.add_parser("serve", help="run the MCP server (your AI tool runs this for you)").set_defaults(func=cmd_serve)
+    p = sub.add_parser("serve", help="run the MCP server (your AI tool runs this for you)")
+    p.add_argument("--repo", help=argparse.SUPPRESS)
+    p.add_argument("--starter", type=int, help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_serve)
 
     args = parser.parse_args(argv)
     unknown = [t for t in getattr(args, "tools", None) or [] if t not in connect.TOOLS]

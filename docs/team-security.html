@@ -243,10 +243,15 @@
             never commit, and never get past the secret check.
           </p>
           <p>
-            If you ask Mnemolith to draft starter memories, it runs Claude Code
-            once on your computer, under your own Claude account. That run can
-            read files in the repo and add team memories, and nothing else: no
-            edits, no commands beyond <code>git log</code> and <code>ls</code>.
+            If you ask Mnemolith to draft starter memories, it runs your AI tool
+            once on your computer, under your own account with that tool, kept to
+            reading files and adding team memories as tightly as each tool allows:
+            Claude Code gets an explicit list of allowed tools (no edits, no
+            commands beyond <code>git log</code> and <code>ls</code>), Codex runs in
+            its read-only sandbox, and Cursor with its sandbox on. For
+            Cursor, Mnemolith points its own settings file at Mnemolith for that
+            run and puts the file back exactly as it was. If a tool changes any
+            other file anyway, Mnemolith lists them so you can undo them.
           </p>
         </div>
       </section>

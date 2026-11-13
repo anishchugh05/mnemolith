@@ -277,10 +277,13 @@ So a new team memory doesn't start empty, `team init` offers three things, each 
 
 - turn the notes your repo already has in `CLAUDE.md`, `AGENTS.md` and Cursor rules into team memories (at most 30
   at a time);
-- have Claude Code read the repo and draft up to 30 starter memories: how to build and test it, its conventions,
-  what not to change. Mnemolith has no AI of its own, so this runs your Claude Code once, under your plan, able only
-  to read files and add team memories. `mnemolith team draft` does it later. With another AI tool, run
-  `mnemolith team ai on` and ask it to "draft starter team memories for this repo";
+- have your AI tool (Claude Code or Cursor, whichever you have) read the repo and draft up to 30 starter
+  memories: how to build and test it, its conventions, what not to change. Mnemolith has no AI of its own, so this
+  runs that tool once, under your own plan, kept to reading files and adding team memories: Claude Code by a list of
+  allowed tools, Codex by its read-only sandbox, Cursor by its sandbox. If a tool changes any other file
+  anyway, Mnemolith tells you which. Claude Code and Cursor are tested; Codex is experimental and only used when
+  asked for. `mnemolith team draft --with cursor` (or `claude`, `codex`) does it later. With
+  any other AI tool, run `mnemolith team ai on` and ask it to "draft starter team memories for this repo";
 - add one line to `CLAUDE.md` / `AGENTS.md` pointing at `mnemolith.md`, since AI tools don't read that file on
   their own.
 
@@ -544,7 +547,6 @@ What's coming next, roughly in order. Ideas and pushback are welcome in
   repos.
 - **Mender for team memories.** When a team memory is flagged, Mender drafts the fix as an edit to its file.
 - **`mnemolith.md` kept up to date** after each merge, so nobody runs `mnemolith team sync` by hand.
-- **Starter memories from Cursor and Codex**, not only Claude Code.
 
 **Then: memory for any folder (early 2027)**
 - Memories for folders that aren't code, tied to PDFs, Word files and spreadsheets, and flagged when those change,

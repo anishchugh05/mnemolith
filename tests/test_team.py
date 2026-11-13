@@ -5,6 +5,8 @@ included, don't mistake this file for one that leaks real ones. None of them is 
 
 Run with `python -m pytest tests`.
 """
+import json
+
 import pytest
 
 from mnemolith import config, server, team
@@ -412,7 +414,7 @@ def test_a_starter_run_is_capped_and_the_pointer_is_added_once(repo, monkeypatch
     assert team.starter_limit() is None
     monkeypatch.setenv(team.STARTER_ENV, "30")
     assert team.starter_limit() == 30
-    cmd = team.starter_command(repo, "claude", repo / "mcp.json", limit=30)
+    cmd = team.starter_command(repo, "claude", "claude", repo / "mcp.json", limit=30)
     assert cmd[:2] == ["claude", "-p"] and "--strict-mcp-config" in cmd and "Edit" not in cmd and "Write" not in cmd
     (repo / "CLAUDE.md").write_text("# shop\n")
     assert [p.name for p in team.add_pointer(repo)] == ["CLAUDE.md"]
@@ -649,3 +651,80 @@ def test_a_teammate_who_hasnt_joined_is_told_once_and_never_after_leaving(repo, 
     first = server._team_invite()
     assert first and "mnemolith team init" in first[0] and "1 memory" in first[0]
     assert server._team_invite() == []  # once per session
+
+
+def test_each_ai_tool_drafts_with_mnemolith_held_to_a_starter_run(repo, tmp_path):
+    import json
+    team.init(repo)
+    claude = team.starter_command(repo, "claude", "/bin/claude", tmp_path / "mcp.json", limit=20)
+    server = json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]["mnemolith"]
+    assert server["args"][-4:] == ["--starter", "20", "--repo", str(repo)] and "env" not in server
+    assert "--allowedTools" in claude and "Bash(git log:*)" in claude
+    codex = team.starter_command(repo, "codex", "/bin/codex", tmp_path / "x", limit=20)
+    assert codex[:4] == ["/bin/codex", "exec", "--sandbox", "read-only"]
+    args = next(a for a in codex if a.startswith("mcp_servers.mnemolith.args="))
+    assert json.loads(args.split("=", 1)[1])[-4:] == ["--starter", "20", "--repo", str(repo)]
+    cursor = team.starter_command(repo, "cursor", "/bin/agent", tmp_path / "x")
+    assert cursor[:2] == ["/bin/agent", "-p"] and "--approve-mcps" in cursor
+    assert "--mode" not in cursor and cursor[cursor.index("--sandbox") + 1] == "enabled"
+    assert cursor[cursor.index("--workspace") + 1] == str(repo)
+
+
+def test_cursors_config_is_put_back_exactly_as_it_was(repo, tmp_path, monkeypatch):
+    from mnemolith import connect
+    config = tmp_path / "cursor" / "mcp.json"
+    monkeypatch.setattr(connect, "cursor_config", lambda: config)
+    team.init(repo)
+    with team.CursorServer(repo):  # no config before: none after
+        assert "--starter" in config.read_text()
+    assert not config.exists()
+    original = b'{\n  "mcpServers": {"other": {"command": "x"}, "mnemolith": {"command": "old"}}\n}  \n'
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_bytes(original)
+    try:
+        with team.CursorServer(repo):
+            data = json.loads(config.read_text())
+            assert "--starter" in data["mcpServers"]["mnemolith"]["args"] and data["mcpServers"]["other"]
+            raise KeyboardInterrupt  # stopped half way
+    except KeyboardInterrupt:
+        pass
+    assert config.read_bytes() == original
+    config.write_text("{not json")
+    with pytest.raises(team.TeamError):
+        with team.CursorServer(repo):
+            pass
+    assert config.read_text() == "{not json"
+
+
+def test_files_a_drafting_run_shouldnt_have_touched_are_reported(repo):
+    git(repo, "init", "-q")
+    team.init(repo)
+    (repo / "app.py").write_text("x = 1\n")
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "start")
+    before = team.git_state(repo)
+    team.add(repo, "Deploys go out on Tuesdays.")
+    assert team.outside_changes(repo, before) == []
+    (repo / "app.py").write_text("x = 2\n")
+    assert team.outside_changes(repo, before) == ["app.py"]
+
+
+def test_serve_takes_the_starter_settings_on_its_command_line(monkeypatch):
+    import os
+    from mnemolith import cli
+    seen = {}
+    monkeypatch.setattr("mnemolith.server.serve", lambda: seen.update(
+        starter=os.environ.get(team.STARTER_ENV), repo=os.environ.get("MNEMOLITH_REPO")))
+    monkeypatch.delenv(team.STARTER_ENV, raising=False)
+    monkeypatch.delenv("MNEMOLITH_REPO", raising=False)
+    with pytest.raises(SystemExit):
+        cli.main(["serve", "--starter", "35", "--repo", "/tmp/somewhere"])
+    assert seen == {"starter": "35", "repo": "/tmp/somewhere"}
+
+
+def test_a_tool_that_doesnt_start_isnt_offered(monkeypatch, tmp_path):
+    good, bad = tmp_path / "claude", tmp_path / "codex"
+    good.write_text("#!/bin/sh\necho 1.0\n"); bad.write_text("#!/bin/sh\nexit 1\n")
+    good.chmod(0o755); bad.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert [t[0] for t in team.starter_tools()] == ["claude"] and team.BROKEN == []  # Codex isn't offered unasked
+    assert [t[0] for t in team.starter_tools(include_all=True)] == ["claude"] and team.BROKEN == ["Codex"]

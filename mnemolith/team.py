@@ -1198,16 +1198,151 @@ def starter_limit() -> Optional[int]:
         return None
 
 
-def starter_command(root: Path, claude: str, config_file: Path, limit: int = MAX_IMPORT) -> List[str]:
-    """The Claude Code command that drafts starter memories, and the settings file it needs. It can read the
-    repo and call two Mnemolith tools, nothing else: no edits, no shell beyond `git log` and `ls`."""
+# The AI tools that can draft starter memories, in the order they're offered: (key, name people know it by).
+STARTER_TOOLS_BY = [("claude", "Claude Code"), ("codex", "Codex"), ("cursor", "Cursor")]
+# Cursor's read-only "ask" mode can't call tool servers, so Cursor drafts in its normal mode with its sandbox
+# on (which limits the commands it can run), and Mnemolith checks afterwards that it changed no other files.
+CURSOR_MODE = os.environ.get("MNEMOLITH_STARTER_CURSOR_MODE", "agent")
+
+
+def _cursor_binary() -> Optional[str]:
+    """Cursor's command-line agent: `cursor-agent`, or `agent` in newer versions. A plain `agent` on PATH could
+    be some other program, so it only counts if it says it's Cursor's."""
+    import shutil
+    found = shutil.which("cursor-agent")
+    if found:
+        return found
+    found = shutil.which("agent")
+    if not found:
+        return None
+    try:
+        out = subprocess.run([found, "--help"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return found if "cursor" in (out.stdout + out.stderr).lower() else None
+
+
+def _runs(binary: str) -> bool:
+    """Whether a tool's command actually starts. A command on PATH can still be broken: a launcher whose real
+    program is missing, or one the system blocked."""
+    try:
+        out = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0
+
+
+BROKEN: List[str] = []  # tools found on PATH that didn't start, for the message when none work
+
+
+OFFERED = ("claude", "cursor")  # Codex can draft only when asked for by name, until it reliably finds Mnemolith's tools
+
+
+def starter_tools(include_all: bool = False) -> List[Tuple[str, str, str]]:
+    """The AI tools installed here that can draft starter memories, and actually start: [(key, name, path)]."""
+    import shutil
+    found = {"claude": shutil.which("claude"), "codex": shutil.which("codex"), "cursor": _cursor_binary()}
+    BROKEN.clear()
+    usable = []
+    for key, name in STARTER_TOOLS_BY:
+        if not found[key] or (key not in OFFERED and not include_all):
+            continue
+        if _runs(found[key]):
+            usable.append((key, name, found[key]))
+        else:
+            BROKEN.append(name)
+    return usable
+
+
+def starter_server(root: Path, limit: int = MAX_IMPORT) -> List[str]:
+    """How the drafting tool starts Mnemolith for that one run: this exact Python, told on its command line (not
+    through environment variables, which some tools don't pass on) that it's a capped starter run in this repo."""
     import sys
-    cap = len(load(root)) + limit
-    servers = {"mnemolith": {"command": sys.executable, "args": ["-m", "mnemolith", "serve"],
-                             "env": {STARTER_ENV: str(cap), "MNEMOLITH_REPO": str(root), "MNEMOLITH_SOURCE": "starter"}}}
-    config_file.write_text(json.dumps({"mcpServers": servers}), encoding="utf-8")
-    return [claude, "-p", STARTER_PROMPT.format(limit=limit), "--mcp-config", str(config_file), "--strict-mcp-config",
-            "--allowedTools", *STARTER_TOOLS]
+    return [sys.executable, "-m", "mnemolith", "serve", "--starter", str(len(load(root)) + limit), "--repo", str(root)]
+
+
+def _toml(value) -> str:
+    return json.dumps(value)  # a JSON string or array of strings is also valid TOML
+
+
+def starter_command(root: Path, tool: str, binary: str, config_file: Path, limit: int = MAX_IMPORT) -> List[str]:
+    """The command that has one AI tool read the repo and draft starter memories. Each is held to reading files
+    and calling Mnemolith, as far as that tool allows: Claude Code by an explicit list of tools, Codex by its
+    read-only sandbox, Cursor by its sandbox and a check afterwards that it changed nothing else. Whatever the tool, the secret check, the cap on how many
+    memories and the cap on linked files apply, because Mnemolith enforces them itself."""
+    server = starter_server(root, limit)
+    prompt = STARTER_PROMPT.format(limit=limit)
+    if tool == "claude":
+        config_file.write_text(json.dumps({"mcpServers": {"mnemolith": {"command": server[0], "args": server[1:]}}}),
+                               encoding="utf-8")
+        return [binary, "-p", prompt, "--mcp-config", str(config_file), "--strict-mcp-config",
+                "--allowedTools", *STARTER_TOOLS]
+    if tool == "codex":
+        return [binary, "exec", "--sandbox", "read-only", "-C", str(root),
+                "-c", 'approval_policy="never"',
+                "-c", f"mcp_servers.mnemolith.command={_toml(server[0])}",
+                "-c", f"mcp_servers.mnemolith.args={_toml(server[1:])}",
+                "-c", "mcp_servers.mnemolith.startup_timeout_sec=120",
+                prompt]
+    if tool == "cursor":
+        mode = ["--mode", CURSOR_MODE] if CURSOR_MODE in ("ask", "plan") else []  # its normal mode has no flag
+        return [binary, "-p", "--output-format", "text", "--approve-mcps", "--trust", "--sandbox", "enabled", *mode,
+                "--workspace", str(root), prompt]
+    raise TeamError(f"Can't draft starter memories with {tool}.")
+
+
+class CursorServer:
+    """For a Cursor run: Cursor's command-line agent only reads tool servers from its config file, so this
+    points the file's "mnemolith" entry at the starter server for the run, and puts the file back exactly as it
+    was afterwards, byte for byte (or removes it, if there wasn't one). It's the user's own config in their home
+    folder, never anything in the repo."""
+
+    def __init__(self, root: Path, limit: int = MAX_IMPORT):
+        from . import connect
+        self.path = connect.cursor_config()
+        self.server = starter_server(root, limit)
+        self.before: Optional[bytes] = None
+
+    def __enter__(self):
+        self.before = self.path.read_bytes() if self.path.exists() else None
+        try:
+            data = json.loads(self.before.decode("utf-8")) if self.before and self.before.strip() else {}
+        except ValueError:
+            raise TeamError(f"{self.path} isn't valid JSON, so Mnemolith won't change it. Fix it, or draft with another tool.")
+        if not isinstance(data, dict):
+            raise TeamError(f"{self.path} isn't a JSON object, so Mnemolith won't change it.")
+        servers = data.get("mcpServers") if isinstance(data.get("mcpServers"), dict) else {}
+        servers["mnemolith"] = {"command": self.server[0], "args": self.server[1:]}
+        data["mcpServers"] = servers
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return self
+
+    def __exit__(self, *exc):
+        if self.before is None:
+            try:
+                self.path.unlink()
+            except OSError:
+                pass
+        else:
+            self.path.write_bytes(self.before)
+        return False
+
+
+def outside_changes(root: Path, before: set) -> List[str]:
+    """Files a drafting run changed outside the team memory files: it shouldn't have, so the user is told."""
+    now = set((_git(root, "status", "--porcelain") or "").splitlines())
+    paths = []
+    for line in sorted(now - before):
+        path = line[3:].strip().strip('"')
+        if path.startswith(FOLDER) or path.startswith(".mnemolith") or path in (INDEX, ATTRIBUTES):
+            continue
+        paths.append(path)
+    return paths
+
+
+def git_state(root: Path) -> set:
+    return set((_git(root, "status", "--porcelain") or "").splitlines())
 
 
 def pointer_files(root: Path) -> List[Path]:
