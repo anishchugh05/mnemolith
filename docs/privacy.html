@@ -186,14 +186,17 @@
           <p>
             If you use <a href="team.html">team memory</a>, the memories you
             choose to share are written as files in your repo, in
-            <code>.mnemolith/team/</code> and <code>mnemolith.md</code>. Everyone
+            <code>.mnemolith/team/</code> and <code>mnemolith.md</code> (plus one
+            line in <code>.gitattributes</code>). Everyone
             who can see the repo can read them. Mnemolith never commits or pushes
             them: they leave your computer only when you push, to wherever your
             repo is hosted.
           </p>
           <p>
             Before a memory is written to the repo, Mnemolith checks it for keys,
-            tokens and passwords and refuses anything that looks like one.
+            tokens and passwords and refuses anything that looks like one. If you
+            ask it to draft starter memories, it runs Claude Code on your computer,
+            under your own Claude account; Mnemolith itself sends nothing anywhere.
             Which repos you use team memory in, and your sharing choices, stay in
             <code>~/.mnemolith</code> on your computer.
           </p>

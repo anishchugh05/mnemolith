@@ -57,7 +57,7 @@ like any other file in the repo.
 - To change a memory, edit its file. To retire one, set `status: retired` in its header.
 - `mnemolith.md` at the top of the repo lists every memory in one line, for teammates and AI tools without
   Mnemolith. It's generated: `mnemolith team sync` rebuilds it after you edit a memory by hand.
-- `files:` lists the files a memory depends on. When one changes, Mnemolith shows the memory as possibly
+- `files:` lists the files (or folders) a memory depends on. When one changes, Mnemolith shows the memory as possibly
   outdated until someone runs `mnemolith team confirm <name>` or fixes it.
 - Mnemolith never commits. Changes here are yours to commit and review.
 """
@@ -114,9 +114,17 @@ def _unquote(value: str) -> str:
     return value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'" else value
 
 
+FINGERPRINT = re.compile(r"^[0-9a-f]{12}$")
+
+
 def _file_entry(item: str) -> Tuple[str, str]:
-    path, _, fingerprint = _unquote(item).partition("@")
-    return path.strip().removeprefix("./"), fingerprint.strip()
+    """"shop/a.py@3f2a9c1b04de" -> ("shop/a.py", "3f2a9c1b04de"). Only a real fingerprint after the last @ counts,
+    so a path with an @ of its own (packages/@acme/ui/button.js) stays whole."""
+    item = _unquote(item)
+    path, at, last = item.rpartition("@")
+    if not at or not FINGERPRINT.match(last.strip()):
+        path, last = item, ""
+    return path.strip().removeprefix("./"), last.strip()
 
 
 def parse(raw: str) -> Tuple[Dict[str, str], List[Tuple[str, str]], str]:
@@ -199,10 +207,42 @@ def fingerprint(path: Path) -> str:
     return hashlib.sha1(data).hexdigest()[:12]
 
 
+MAX_FOLDER_FILES = 500  # a linked folder is fingerprinted file by file on every recall, so it has to stay small
+
+
+def _folder_files(root: Path, path: str) -> Optional[List[str]]:
+    """The files in a linked folder, as repo-relative paths: what git tracks or would track, so build output and
+    ignored files don't count. None if there are too many to fingerprint on every recall."""
+    try:
+        out = subprocess.run(["git", "ls-files", "-co", "--exclude-standard", "--", path], cwd=root,
+                             capture_output=True, text=True, timeout=10)
+        names = sorted(n for n in out.stdout.splitlines() if n) if out.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        names = None
+    if names is None:  # not a git repo, or no git: every file that isn't hidden
+        base = root / path
+        names = sorted(p.relative_to(root).as_posix() for p in base.rglob("*")
+                       if p.is_file() and not any(part.startswith(".") for part in p.relative_to(base).parts))
+    names = [n for n in names if not n.startswith(FOLDER + "/") and (root / n).is_file()]
+    return names if len(names) <= MAX_FOLDER_FILES else None
+
+
 def _now(root: Path, path: str) -> str:
+    """The fingerprint of a linked file or folder as it is now; "missing" if it's gone (or, for a folder, empty
+    or too big to follow). A folder's fingerprint covers the names and contents of the files in it."""
     try:
         target = root / path
-        return fingerprint(target) if target.is_file() else "missing"
+        if target.is_file():
+            return fingerprint(target)
+        if not target.is_dir():
+            return "missing"
+        names = _folder_files(root, path)
+        if not names:
+            return "missing"
+        h = hashlib.sha1()
+        for name in names:
+            h.update(f"{name}\0{fingerprint(root / name)}\n".encode("utf-8"))
+        return h.hexdigest()[:12]
     except OSError:
         return "missing"
 
@@ -219,6 +259,16 @@ def changed(mem: Memory, root: Path) -> List[str]:
     return out
 
 
+def linkable(path: str) -> bool:
+    """Whether a memory may depend on this path: inside the repo, and not one of team memory's own files, which
+    change every time anyone shares something and would flag the memory over and over."""
+    p = Path(path)
+    if p.is_absolute() or ".." in p.parts:
+        return False
+    rel = p.as_posix().rstrip("/")
+    return rel not in (INDEX, ".mnemolith", FOLDER) and not rel.startswith(FOLDER + "/")
+
+
 def confirm(root: Path, name: str) -> Memory:
     """Says a memory is still true: records the current fingerprint of each file it depends on, in its file."""
     mem = find(root, name)
@@ -230,7 +280,7 @@ def confirm(root: Path, name: str) -> Memory:
     if gone:
         raise TeamError(f"{mem.name} depends on {', '.join(gone)}, which no longer exists. Edit "
                         f"{mem.path.relative_to(root).as_posix()} to fix or retire it.")
-    mem.files = [(path, _now(root, path)) for path, _ in mem.files]
+    mem.files = [(path, _now(root, path)) for path, _ in mem.files if linkable(path)]
     mem.meta.setdefault("mnemolith", str(FORMAT))
     _write(mem)
     return mem
@@ -278,13 +328,41 @@ def _ignored(root: Path) -> bool:
     return out.returncode == 0
 
 
+ATTRIBUTES = ".gitattributes"
+MERGE_RULE = "mnemolith.md merge=union"
+MERGE_NOTE = "# Mnemolith: when two branches both add team memories, keep both lines of the list instead of conflicting"
+
+
+def ensure_merge_rule(root: Path) -> bool:
+    """Makes sure the repo's .gitattributes tells git to merge mnemolith.md by keeping both sides' lines. Without
+    it, two people who each share a memory on their own branch get a merge conflict in that one file every time.
+    Returns whether the file changed."""
+    path = root / ATTRIBUTES
+    try:
+        raw = path.read_bytes().decode("utf-8", errors="replace") if path.exists() else ""
+    except OSError:
+        return False
+    if re.search(r"^\s*mnemolith\.md\s+.*\bmerge=", raw, re.M):
+        return False  # already has a rule, ours or one the team chose
+    newline = "\r\n" if "\r\n" in raw else "\n"
+    add = (("" if not raw or raw.endswith(("\n", "\r")) else newline) + MERGE_NOTE + newline + MERGE_RULE + newline)
+    with open(path, "a", encoding="utf-8", newline="") as f:
+        f.write(add)
+    return True
+
+
 def init(root: Path) -> dict:
-    """Starts a team memory in this repo, or joins the one that's there. Returns {created, count, ignored}."""
+    """Starts a team memory in this repo, or joins the one that's there. Returns {created, count, ignored}.
+    Starting one also writes mnemolith.md and its merge rule, so the first two people to share don't collide.
+    Joining never touches the repo."""
     created = not exists(root)
     (folder(root) / "memories").mkdir(parents=True, exist_ok=True)
     readme = folder(root) / "README.md"
     if not readme.exists():
         readme.write_text(README, encoding="utf-8")
+    if created:
+        write_index(root)
+        ensure_merge_rule(root)
     _set_joined(root, True)
     return {"created": created, "count": len(current(root)), "ignored": _ignored(root)}
 
@@ -378,19 +456,37 @@ _HARD = [
     ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("an AWS access key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("a GitHub token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b")),
+    ("a GitLab token", re.compile(r"\bglpat-[A-Za-z0-9_-]{16,}")),
     ("a Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}")),
     ("a Stripe key", re.compile(r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}\b")),
     ("an API key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}")),
     ("a Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    ("a Google login token", re.compile(r"\bya29\.[A-Za-z0-9_-]{20,}")),
+    ("a Hugging Face token", re.compile(r"\bhf_[A-Za-z0-9]{30,}\b")),
+    ("an npm token", re.compile(r"\bnpm_[A-Za-z0-9]{30,}\b")),
+    ("a PyPI token", re.compile(r"\bpypi-[A-Za-z0-9_-]{30,}")),
+    ("a SendGrid key", re.compile(r"\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}")),
+    ("a DigitalOcean token", re.compile(r"\bdop_v1_[a-f0-9]{40,}\b")),
+    ("a login token", re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{20,}=*")),
     ("a login token (JWT)", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}")),
     ("a web address with a password in it", re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@")),
 ]
-_ASSIGNED = re.compile(r"(?i)\b(password|passwd|pwd|passphrase|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|"
-                       r"credentials?)\b[\"'`]?\s*[=:]\s*[\"'`]?([^\s\"'`,;]{4,})")
+_KEYWORD = (r"password|passwd|pwd|pw|passphrase|passcode|secret|token|api[ _-]?key|access[ _-]?key|"
+            r"private[ _-]?key|auth[ _-]?key|credentials?")
+# A name and a password together: "login is admin / hunter2", "creds: admin:hunter2".
+_PAIR = re.compile(r"(?i)\b(?:login|log[- ]in|creds?|credentials?|username|user)\b\s*(?:is|are|=|:)?\s*"
+                   r"[\w.@-]{2,}\s*[/:]\s*([^\s\"'`,;/:]{5,})")
+# A password straight after the word: "ssh in with password Tr0ub4dor".
+_AFTER = re.compile(r"(?i)\b(?:password|passwd|pwd|pw|passphrase|passcode)\s+[\"'`]?([^\s\"'`,;]{6,})")
+_CARD = re.compile(r"\b(?:\d[ -]?){13,19}\b")
+_ID_NUMBER = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
+# NAME=value, the way config and .env files write it: password: x, DB_PASSWORD=x, SECRET_KEY='x'.
+_ASSIGNED = re.compile(r"(?i)(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*(" + _KEYWORD.replace("[ _-]", "[_-]") +
+                       r")(?:[_-][A-Za-z0-9]+)*[\"'`]?\s*[=:]\s*[\"'`]?([^\s\"'`,;]{4,})")
 # The same, said in words: "the admin password is hunter2", "staging token was abc123". Common words after "is"
 # ("the password is stored in Vault", "the token is required") are how people talk about a secret, not the secret.
-_SAID = re.compile(r"(?i)\b(password|passwd|pwd|passphrase|secret|token|api[ _-]?key|access[ _-]?key|private[ _-]?key|"
-                   r"credentials?)(?:\s+(?:for|of|on|to)\s+[\w.@/-]+)?\s+(?:is|was|=|:)\s+[\"'`]?([^\s\"'`,;]{4,})")
+_SAID = re.compile(r"(?i)\b(" + _KEYWORD + r")(?:\s+(?:for|of|on|to)\s+[\w.@/-]+)?\s+(?:is|was|=|:)\s+"
+                   r"[\"'`]?([^\s\"'`,;]{4,})")
 _WORDS = re.compile(r"^(?:[a-z]+(?:ed|ing|ly|able|ible)|stored|kept|set|read|in|on|at|the|an|not|never|always|"
                     r"only|now|still|same|different|available|missing|wrong|correct|valid|invalid|empty|blank|"
                     r"also|just|from|with|what|where|whatever|unique|random|long|short|strong|weak|secret|private|"
@@ -398,11 +494,22 @@ _WORDS = re.compile(r"^(?:[a-z]+(?:ed|ing|ly|able|ible)|stored|kept|set|read|in|
                     r"there|here|kept|held|done|gone|due|case|less|more|most|much|many|some|any|none|null|"
                     r"true|false|optional|required|changeme|redacted|hidden|example)$")
 _PLACEHOLDER = re.compile(r"^(?:[$<{(\[%].*|[A-Z][A-Z0-9_]*|\*+|[xX]+|\.+|(?i:none|null|true|false|required|optional|"
-                          r"changeme|redacted|hidden|example|your[\w-]*|process\.env\S*|os\.environ\S*|env\S*))$")
+                          r"changeme|redacted|hidden|example|your[\w-]*|process\.env\S*|os\.environ\S*|env\S*|"
+                          r"bearer|basic|jwt|oauth\S*|sha\d*|rs\d+|hs\d+|bcrypt|argon2\w*|scrypt))$")
 _SOFT = [
     ("a long random-looking string, which is what keys look like", re.compile(r"\b(?=[A-Za-z_-]*\d)(?=[\d_-]*[A-Za-z])[A-Za-z0-9_-]{32,}\b")),
     ("a folder on your computer, with your user name in it", re.compile(r"(?:/Users/|/home/|[A-Za-z]:\\Users\\)[^\s/\\]+")),
 ]
+
+
+def _luhn(digits: List[int]) -> bool:
+    """The checksum real card numbers pass and most other long numbers don't."""
+    total = 0
+    for i, d in enumerate(reversed(digits)):
+        if i % 2:
+            d = d * 2 - 9 if d > 4 else d * 2
+        total += d
+    return total % 10 == 0 and len(set(digits)) > 1
 
 
 def _masked(found: str) -> str:
@@ -423,18 +530,33 @@ def scan_secrets(text: str) -> List[dict]:
     for what, pattern in _HARD:
         for m in pattern.finditer(text):
             add(what, True, m.start(), m.end())
-    for m in _ASSIGNED.finditer(text):
-        value = m.group(2).rstrip(".)")
-        if _PLACEHOLDER.match(value):
-            continue  # "token: $GITHUB_TOKEN", "password = <ask ops>": where a secret lives, not the secret
-        mixed = bool(re.search(r"\d", value) and re.search(r"[A-Za-z]", value))
-        add(f"a {m.group(1).lower()} written out", mixed, m.start(2), m.start(2) + len(value))
-    for m in _SAID.finditer(text):
-        value = m.group(2).rstrip(".)!?")
-        if len(value) < 4 or _PLACEHOLDER.match(value) or _WORDS.match(value):
-            continue
-        mixed = bool(re.search(r"\d|[^\w]", value) and re.search(r"[A-Za-z]", value))
-        add(f"a {m.group(1).lower()} written out", mixed, m.start(2), m.start(2) + len(value))
+    def mixed(value: str) -> bool:
+        return bool(re.search(r"\d|[^\w]", value) and re.search(r"[A-Za-z]", value))
+
+    def harmless(value: str) -> bool:
+        # where a secret lives ("token: $GITHUB_TOKEN"), a word about it ("is stored"), or a small number ("TTL=3600")
+        return bool(len(value) < 4 or _PLACEHOLDER.match(value) or _WORDS.match(value.lower())
+                    or re.fullmatch(r"\d{1,5}", value))
+
+    for pattern in (_ASSIGNED, _SAID):
+        for m in pattern.finditer(text):
+            value = m.group(2).rstrip(".)!?")
+            if not harmless(value):
+                add(f"a {m.group(1).lower()} written out", mixed(value), m.start(2), m.start(2) + len(value))
+    for m in _AFTER.finditer(text):
+        value = m.group(1).rstrip(".)!?")
+        if re.search(r"\d", value) and not harmless(value):  # "with password Tr0ub4dor", "passcode 884213"
+            add("a password written out", mixed(value), m.start(1), m.start(1) + len(value))
+    for m in _PAIR.finditer(text):
+        value = m.group(1).rstrip(".)!?")
+        if mixed(value) and not harmless(value):  # "login is admin / hunter2"
+            add("a login and password written out", True, m.start(1), m.start(1) + len(value))
+    for m in _CARD.finditer(text):
+        digits = [int(c) for c in m.group(0) if c.isdigit()]
+        if 13 <= len(digits) <= 19 and _luhn(digits):
+            add("a card number", True, m.start(), m.end())
+    for m in _ID_NUMBER.finditer(text):
+        add("what looks like a Social Security number", False, m.start(), m.end())
     for what, pattern in _SOFT:
         for m in pattern.finditer(text):
             add(what, False, m.start(), m.end())
@@ -470,9 +592,11 @@ def author(root: Path) -> str:
 
 
 def slug(text: str) -> str:
-    words = re.findall(r"[a-z0-9]+", text.lower())
+    """A file name from a memory's first words, in whatever language it's written."""
+    words = re.findall(r"[^\W_]+", text.lower())
     name = ""
     for w in words[:8]:
+        w = w[:24]  # languages written without spaces give one very long "word"
         if len(name) + len(w) > 48:
             break
         name += ("-" if name else "") + w
@@ -488,7 +612,7 @@ def _free_name(root: Path, text: str) -> str:
 
 
 def add(root: Path, text: str, files: Optional[List[str]] = None, allow_soft: bool = False,
-        by: str = "", index: bool = True) -> Memory:
+        by: str = "", index: bool = True, max_files: Optional[int] = None) -> Memory:
     """Writes a new team memory file, after the secret check. Raises SecretFound if the check finds something
     (allow_soft lets a person accept findings that only might be secrets; certain ones are always refused)."""
     from datetime import date
@@ -501,11 +625,13 @@ def add(root: Path, text: str, files: Optional[List[str]] = None, allow_soft: bo
     named, _missing = portability.mentioned_paths(text, root)  # "v1 (shop/api/v1.py) is frozen" depends on that file
     linked = []
     for path in dict.fromkeys([server.relative(p, root) for p in (files or []) if p.strip()] + named):
-        if Path(path).is_absolute() or ".." in Path(path).parts:
-            continue  # only files inside the repo
+        if not linkable(path):
+            continue
         now = _now(root, path)
         if now != "missing":
             linked.append((path, now))
+    if max_files is not None:
+        linked = linked[:max_files]  # the files passed come first, then ones the text names
     findings = scan_secrets("\n".join([text] + [path for path, _ in linked]))
     if findings and (not allow_soft or any(f["hard"] for f in findings)):
         raise SecretFound(findings)
@@ -587,22 +713,32 @@ def index_text(root: Path) -> str:
     return "\n".join(lines + (rows or ["_No team memories yet._"])) + "\n"
 
 
+def _rows(text: str) -> List[str]:
+    return sorted({line.strip() for line in text.replace("\r\n", "\n").split("\n") if line.startswith("- ")})
+
+
 def index_outdated(root: Path) -> bool:
+    """Whether mnemolith.md lists something other than the team's current memories. The order of its lines
+    doesn't matter: after a merge that kept both branches' lines, it's still right."""
     path = root / INDEX
     if any(conflicted(m) for m in load(root)):
         return False  # settle the conflict first: rebuilding now would drop that memory from the list
     try:
-        have = path.read_text(encoding="utf-8").replace("\r\n", "\n") if path.exists() else None
+        have = path.read_text(encoding="utf-8") if path.exists() else None
     except OSError:
         return False
     if have is None:
-        return bool(current(root))
-    return have != index_text(root)
+        return True
+    if re.search(r"^[<=>]{7}", have, re.M):
+        return True  # the list itself was left in conflict (a repo without the merge rule): rebuild it
+    return _rows(have) != _rows(index_text(root))
 
 
 def write_index(root: Path) -> bool:
     """Rebuilds mnemolith.md. Returns whether it changed."""
     if not index_outdated(root):
+        return False
+    if any(conflicted(m) for m in load(root)):
         return False
     path = root / INDEX
     raw = path.read_bytes().decode("utf-8", errors="replace") if path.exists() else ""
@@ -700,3 +836,93 @@ def overlaps(root: Path, own: List[Tuple[str, str]], shared: List[Memory], at: f
         if score >= at:
             out[mem.id] = (own_id, score)
     return out
+
+
+# ---------- starter memories, drafted by the user's own AI tool ----------
+#
+# Mnemolith has no AI of its own and needs no API key. To give a new team memory something to start with, it
+# asks the AI tool the user already has (Claude Code, run once, non-interactively) to read the repo and share
+# what a new teammate's AI would need. Everything it writes passes the secret check and lands as files to review.
+
+STARTER_ENV = "MNEMOLITH_TEAM_STARTER"  # set for that one run: the most team memories the repo may end up with
+STARTER_PROMPT = """Read this repository and give its team memory a useful start.
+
+First call the Mnemolith recall tool with "project setup, conventions and decisions" to see what the team already has.
+Then look through the repo: the README and docs, build and test config, CI, and the main source folders.
+
+Share what a new teammate's AI coding tool would most need to know and would otherwise get wrong, each as one
+call to share_with_team(fact=..., files=[...]):
+- how to build, test, run and release it, when that isn't obvious
+- conventions the code follows that a newcomer would break
+- decisions and the reason for them, where the repo states the reason
+- who or what owns which part, and what must not be changed
+- setup gotchas
+
+Rules:
+- Aim for 10 to 20 memories, at most {limit}. Fewer good ones beat many weak ones: each one is something the
+  team has to review, and something every AI reads.
+- Leave out what changes nothing about how someone works on the code: benchmark numbers, feature lists,
+  limitations that are simply documented, history that no longer matters.
+- One fact per memory, written so it makes sense on its own months from now.
+- files= is how everyone learns the memory may be out of date, so link only the files where the fact is set or
+  enforced: one or two, three at most. Link the code or config that holds the fact, not docs that describe it;
+  link README.md only when the fact lives nowhere else.
+- Only what the repo actually says or shows. Do not guess, and do not invent reasons.
+- Nothing temporary, nothing about a single bug, and never a password, key or token.
+- Do not edit, create or commit any file yourself.
+
+When you are done, reply with one line: how many you shared."""
+STARTER_MAX_FILES = 3
+STARTER_TOOLS = ["Read", "Glob", "Grep", "Bash(git log:*)", "Bash(ls:*)", "mcp__mnemolith__recall",
+                 "mcp__mnemolith__share_with_team"]
+
+POINTER_MARK = "<!-- mnemolith:team -->"
+POINTER = ("Team knowledge for AI tools is in mnemolith.md. If you don't have Mnemolith's recall tool, read that file "
+           "before starting work.")
+
+
+def starter_limit() -> Optional[int]:
+    """During a starter run, the most team memories the repo may hold; None the rest of the time."""
+    try:
+        return int(os.environ[STARTER_ENV])
+    except (KeyError, ValueError):
+        return None
+
+
+def starter_command(root: Path, claude: str, config_file: Path, limit: int = MAX_IMPORT) -> List[str]:
+    """The Claude Code command that drafts starter memories, and the settings file it needs. It can read the
+    repo and call two Mnemolith tools, nothing else: no edits, no shell beyond `git log` and `ls`."""
+    import sys
+    cap = len(load(root)) + limit
+    servers = {"mnemolith": {"command": sys.executable, "args": ["-m", "mnemolith", "serve"],
+                             "env": {STARTER_ENV: str(cap), "MNEMOLITH_REPO": str(root), "MNEMOLITH_SOURCE": "starter"}}}
+    config_file.write_text(json.dumps({"mcpServers": servers}), encoding="utf-8")
+    return [claude, "-p", STARTER_PROMPT.format(limit=limit), "--mcp-config", str(config_file), "--strict-mcp-config",
+            "--allowedTools", *STARTER_TOOLS]
+
+
+def pointer_files(root: Path) -> List[Path]:
+    """Notes files AI tools read on their own (CLAUDE.md, AGENTS.md) that don't point at mnemolith.md yet."""
+    out = []
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        path = root / name
+        try:
+            if path.is_file() and POINTER_MARK not in path.read_text(encoding="utf-8", errors="replace"):
+                out.append(path)
+        except OSError:
+            pass
+    return out
+
+
+def add_pointer(root: Path) -> List[Path]:
+    """Adds one line to CLAUDE.md / AGENTS.md telling AI tools without Mnemolith to read mnemolith.md. No AI tool
+    reads that file by itself; they do read these."""
+    done = []
+    for path in pointer_files(root):
+        raw = path.read_bytes().decode("utf-8", errors="replace")
+        newline = "\r\n" if "\r\n" in raw else "\n"
+        gap = "" if not raw else newline if raw.endswith(("\n", "\r")) else newline * 2
+        with open(path, "a", encoding="utf-8", newline="") as f:
+            f.write(gap + POINTER_MARK + newline + POINTER + newline)
+        done.append(path)
+    return done

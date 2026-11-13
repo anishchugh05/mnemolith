@@ -306,8 +306,9 @@
         </div>
         <p class="architecture-note">
           Teammates without Mnemolith aren&rsquo;t left out: <code>mnemolith.md</code>
-          at the top of the repo lists every team memory in one line, for people
-          and any AI tool to read.
+          at the top of the repo lists every team memory in one line. Setup offers
+          to point <code>CLAUDE.md</code> and <code>AGENTS.md</code> at it, so their
+          AI tools read it too.
         </p>
       </section>
 
@@ -338,8 +339,8 @@
             <p>Whoever can see the repo can see its team memory. No accounts, no separate permissions to manage.</p>
           </div>
           <div class="safety-row">
-            <h3>One file per memory</h3>
-            <p>Two people adding memories never conflict. If two people edit the same one, Mnemolith shows both versions and keeps it out of recall until it&rsquo;s settled.</p>
+            <h3>No merge conflicts from sharing</h3>
+            <p>One file per memory, so two people sharing on different branches merge cleanly. If two people edit the same memory, Mnemolith shows both versions and keeps it out of recall until it&rsquo;s settled.</p>
           </div>
           <div class="safety-row">
             <h3>Works across tools</h3>
@@ -360,7 +361,7 @@
         <div class="safety-list">
           <div class="safety-row">
             <h3>Secrets are refused</h3>
-            <p>Every memory is scanned before it&rsquo;s written. Keys, tokens, passwords and addresses with a password in them never reach the repo. Something that only might be a secret is left for you to decide.</p>
+            <p>Every memory is scanned before it&rsquo;s written. Keys, tokens, passwords (written as <code>DB_PASSWORD=</code> or in plain words), card numbers and addresses with a password in them never reach the repo. Something that only might be a secret is left for you to decide.</p>
           </div>
           <div class="safety-row">
             <h3>A heads-up before sharing</h3>
@@ -461,7 +462,7 @@
                   <pre>mnemolith team init</pre>
                   <button type="button" class="copy-button" data-copy="mnemolith team init" aria-label="Copy command">Copy</button>
                 </div>
-                <p>It offers to bring in the notes your repo already has in <code>CLAUDE.md</code> or <code>AGENTS.md</code>, leaving out anything that looks like a secret.</p>
+                <p>It offers to bring in the notes your repo already has in <code>CLAUDE.md</code> or <code>AGENTS.md</code>, and to have Claude Code read the repo and draft up to 30 starter memories, so your team doesn&rsquo;t start from nothing. Anything that looks like a secret is left out.</p>
               </div>
             </div>
             <div class="install-step">
@@ -483,7 +484,7 @@
                   <pre>mnemolith team init</pre>
                   <button type="button" class="copy-button" data-copy="mnemolith team init" aria-label="Copy command">Copy</button>
                 </div>
-                <p>Commit <code>.mnemolith/team/</code> and <code>mnemolith.md</code> like any change. Each teammate runs the same command in their copy to start using it.</p>
+                <p>Review what was written, then commit <code>.mnemolith/team/</code>, <code>mnemolith.md</code> and <code>.gitattributes</code> like any change. Each teammate runs the same command in their copy to start using it.</p>
               </div>
             </div>
           </div>
@@ -542,7 +543,9 @@
               <summary>What about teammates who don&rsquo;t use Mnemolith?</summary>
               <p>
                 They can read <code>mnemolith.md</code>, a one-line-per-memory list at
-                the top of the repo, and so can any AI tool. Their own setup doesn&rsquo;t
+                the top of the repo. AI tools don&rsquo;t read that file on their own,
+                so setup offers to add one line to <code>CLAUDE.md</code> and
+                <code>AGENTS.md</code> pointing at it. Their own setup doesn&rsquo;t
                 change.
               </p>
             </details>

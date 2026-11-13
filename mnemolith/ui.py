@@ -426,7 +426,8 @@ def api_team_join(_q, body) -> dict:
     if repo_tools.git_top(repo) is None:
         raise ApiError(409, "Team memory lives in a git repo, so your team gets it with the code. This folder isn't one.")
     result = team.init(repo)
-    return {"message": "Started a team memory in this repo. Commit .mnemolith/team/ when you're ready."
+    return {"message": "Started a team memory in this repo. Commit .mnemolith/team/, mnemolith.md and "
+                       ".gitattributes when you're ready."
             if result["created"] else "You're using this repo's team memory now. Restart any AI tool that's open."}
 
 

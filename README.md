@@ -245,7 +245,8 @@ have one shared team memory, kept as plain files in the repo:
 ```
 .mnemolith/team/README.md               what this folder is, for reviewers
 .mnemolith/team/memories/<name>.md      one memory per file
-mnemolith.md                            one line per memory, for people and tools without Mnemolith
+mnemolith.md                            one line per memory, for teammates without Mnemolith
+.gitattributes                          one line, so mnemolith.md never causes a merge conflict
 ```
 
 A memory file is a short header, then the fact:
@@ -270,9 +271,19 @@ mnemolith promote m42        # share one of your memories (ids are in `mnemolith
 mnemolith team               # what the team knows, and what needs a look
 ```
 
-`team init` offers to turn the notes your repo already has in `CLAUDE.md`, `AGENTS.md` and Cursor rules into team
-memories (at most 30 at a time). Commit `.mnemolith/team/` and `mnemolith.md` like any other change; each teammate
-runs `mnemolith team init` in their copy to use it. The dashboard (`mnemolith ui`) has a Team memory section and a
+So a new team memory doesn't start empty, `team init` offers three things, each only if you say yes:
+
+- turn the notes your repo already has in `CLAUDE.md`, `AGENTS.md` and Cursor rules into team memories (at most 30
+  at a time);
+- have Claude Code read the repo and draft up to 30 starter memories: how to build and test it, its conventions,
+  what not to change. Mnemolith has no AI of its own, so this runs your Claude Code once, under your plan, able only
+  to read files and add team memories. `mnemolith team draft` does it later. With another AI tool, run
+  `mnemolith team ai on` and ask it to "draft starter team memories for this repo";
+- add one line to `CLAUDE.md` / `AGENTS.md` pointing at `mnemolith.md`, since AI tools don't read that file on
+  their own.
+
+Review what was written, then commit `.mnemolith/team/`, `mnemolith.md` and `.gitattributes` like any other change;
+each teammate runs `mnemolith team init` in their copy to use it (joining never touches the repo). The dashboard (`mnemolith ui`) has a Team memory section and a
 **Share with team** button on each of your memories.
 
 **How it behaves**
@@ -281,10 +292,13 @@ runs `mnemolith team init` in their copy to use it. The dashboard (`mnemolith ui
   retirement goes through your normal review, and git keeps the history.
 - **Recall reads both.** Your AI gets the team's memories first, labelled `team:<name>`, then your own. A personal
   memory that says nearly the same as a team one is pointed out, so it can be retired or the disagreement raised.
-- **Flagged for everyone.** Each team memory stores fingerprints of the files it depends on (line endings don't
-  matter, so Windows and Mac agree). When one changes, every teammate's AI sees the memory as possibly outdated
+- **Flagged for everyone.** Each team memory stores fingerprints of the files or folders it depends on (line
+  endings don't matter, so Windows and Mac agree; a folder counts as changed when anything in it does, up to 500
+  files). When one changes, every teammate's AI sees the memory as possibly outdated
   until someone runs `mnemolith team confirm <name>` (still true) or `mnemolith team retire <name>`, and commits it.
 - **Sharing moves, it doesn't copy.** A shared memory leaves your own memories, so nobody sees the same fact twice.
+- **No merge conflicts from sharing.** Each memory is its own file, and the `.gitattributes` line tells git to keep
+  both sides' lines in `mnemolith.md`, so two people sharing on different branches merge cleanly.
 - **Conflicts are held back.** If two people change the same memory and git can't merge them, `mnemolith team` shows
   both versions and recall leaves that memory out until it's settled.
 - **Follows branches.** A memory added on a branch exists only there until it merges.
@@ -292,7 +306,8 @@ runs `mnemolith team init` in their copy to use it. The dashboard (`mnemolith ui
 **Safety**
 
 - **Secrets are refused.** Every memory is scanned before it reaches the repo. Anything that looks like a key, token,
-  password or an address with a password in it is refused; something that only might be one (a long commit id, a
+  password (`DB_PASSWORD=...`, or "the admin password is ..."), card number or an address with a password in it is
+  refused; something that only might be one (a long commit id, a
   path with your user name in it) is left for you to decide in the terminal or dashboard, and refused for AI tools.
 - **A heads-up before every share**: "This memory will be visible to everyone with access to this repo." Answer `a`
   to stop asking; turn it back on in the dashboard's Settings.
@@ -301,6 +316,9 @@ runs `mnemolith team init` in their copy to use it. The dashboard (`mnemolith ui
 - **AI tools share only with permission.** After `mnemolith team ai on`, you can ask your AI to share something (or
   to draft starter memories for the repo) and it calls `share_with_team`. Your AI tool may also ask you to approve
   that first call itself.
+
+The secret check is a set of patterns, not a guarantee: it catches the common shapes, and review in the pull request
+is the second line of defence.
 
 Other commands: `mnemolith team sync` rebuilds `mnemolith.md` after hand edits, `mnemolith team import` brings in
 notes later, and `mnemolith team ai off` takes the AI permission back.

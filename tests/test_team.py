@@ -1,5 +1,8 @@
 """Team memory: the files in .mnemolith/team/, read without the engine.
 
+The fake keys and tokens below are split into pieces ("ghp" + "_abc...") so that secret scanners, GitHub's
+included, don't mistake this file for one that leaks real ones. None of them is real.
+
 Run with `python -m pytest tests`.
 """
 import pytest
@@ -123,18 +126,30 @@ def test_embeddings_are_cached_between_sessions(repo, monkeypatch):
 # ---------- the secret check ----------
 
 @pytest.mark.parametrize("text", [
-    "Deploy with AKIAIOSFODNN7EXAMPLE as the key",
-    "CI uses ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+    "Deploy with " + "AKIA" + "IOSFODNN7EXAMPLE as the key",
+    "CI uses " + "ghp" + "_abcdefghijklmnopqrstuvwxyz0123456789",
     "The staging db is postgres://admin:hunter2@db.internal:5432/shop",
-    "Set OPENAI key sk-proj-abcdefghijklmnopqrstuvwx",
+    "Set OPENAI key " + "sk" + "-proj-abcdefghijklmnopqrstuvwx",
     "admin password: hunter2",
     "api_key = 9f8a7b6c5d",
-    "-----BEGIN RSA PRIVATE KEY-----",
+    "-----BEGIN RSA " + "PRIVATE KEY-----",
     "The admin password is hunter2",
     "The staging token was ab12cd34ef56",
     "Local login uses pwd=Summer2024!",
     "the password for admin is Tr0ub4dor&3",
     "Our API key is 9f8a7b6c5d4e",
+    "DB_PASSWORD=hunter2",
+    "export SECRET_KEY='django-insecure-abc123'",
+    "REDIS_AUTH_TOKEN: 9f8a7b6c5d4e",
+    "login is admin / hunter2",
+    "creds: admin:hunter2",
+    "the pw is hunter2",
+    "ssh root@10.0.0.5 with password Tr0ub4dor",
+    "Authorization: Bearer abcdef1234567890abcdef1234567890",
+    "GitLab uses " + "glpat" + "-abcdefghij1234567890",
+    "HF token " + "hf" + "_abcdefghijklmnopqrstuvwxyzABCDEFGH",
+    "npm token " + "npm" + "_abcdefghijklmnopqrstuvwxyz0123456789",
+    "card 4111 1111 1111 1111 exp 12/27",
 ])
 def test_real_looking_secrets_are_always_refused(text):
     found = team.scan_secrets(text)
@@ -158,6 +173,17 @@ def test_real_looking_secrets_are_always_refused(text):
     "Ask Priya for the staging password, it is not stored anywhere",
     "The Stripe key is read from STRIPE_KEY in the environment",
     "The API key is $STRIPE_KEY in CI",
+    "TOKEN_TTL=3600",
+    "PASSWORD_MIN_LENGTH=12",
+    "Set DB_PASSWORD in .env before running",
+    "token: Bearer scheme",
+    "login is handled in auth/login.py",
+    "User: admin/editor roles are in roles.py",
+    "Order 4111 2222 3333 4445 shipped",
+    "users log in with password + OTP",
+    "credentials: stored in Vault under shop/prod",
+    "secret: ${{ secrets.NPM_TOKEN }}",
+    "Password hashing uses argon2id",
 ])
 def test_talking_about_secrets_is_fine(text):
     assert team.scan_secrets(text) == []
@@ -235,7 +261,7 @@ def test_a_secret_stops_a_promotion_before_anything_is_written_or_retired(repo, 
     monkeypatch.setattr(server, "run", run)
     with pytest.raises(team.SecretFound):
         team.promote(repo, "shop", "m8")
-    assert calls == ["MEM.GET"] and team.load(repo) == [] and not (repo / "mnemolith.md").exists()
+    assert calls == ["MEM.GET"] and team.load(repo) == [] and "hunter2" not in (repo / "mnemolith.md").read_text()
 
 
 def test_notes_files_become_team_memories_without_secrets_or_repeats(repo):
@@ -302,3 +328,110 @@ def test_files_a_memory_names_are_linked_even_if_not_passed(repo):
 def test_a_plain_word_password_is_left_for_a_person(repo):
     found = team.scan_secrets("The wifi password is swordfish")
     assert found and not any(f["hard"] for f in found)
+
+
+# ---------- found while trying to break it before launch ----------
+
+def git(repo, *args):
+    import subprocess
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=repo,
+                          capture_output=True, text=True)
+
+
+def test_a_path_with_an_at_sign_survives_being_written_and_read(repo):
+    team.init(repo)
+    (repo / "packages" / "@acme" / "ui").mkdir(parents=True)
+    (repo / "packages" / "@acme" / "ui" / "button.js").write_text("x\n")
+    mem = team.add(repo, "Buttons live in the ui package.", ["packages/@acme/ui/button.js"])
+    again = team.find(repo, mem.name)
+    assert again.files == mem.files and again.files[0][0] == "packages/@acme/ui/button.js"
+    assert team.changed(again, repo) == []
+
+
+def test_a_folder_can_be_linked_and_any_change_inside_it_counts(repo):
+    team.init(repo)
+    (repo / "shop" / "payments").mkdir(parents=True)
+    (repo / "shop" / "payments" / "gateway.py").write_text("def charge(): pass\n")
+    mem = team.add(repo, "The payments folder belongs to the payments team.", ["shop/payments/"])
+    assert [p for p, _ in mem.files] == ["shop/payments"]
+    assert team.changed(team.find(repo, mem.name), repo) == []
+    (repo / "shop" / "payments" / "refunds.py").write_text("x = 1\n")
+    assert team.changed(team.find(repo, mem.name), repo) == ["shop/payments changed"]
+    team.confirm(repo, mem.name)
+    (repo / "shop" / "payments" / "gateway.py").write_text("def charge(): return 1\n")
+    assert team.changed(team.find(repo, mem.name), repo) == ["shop/payments changed"]
+
+
+def test_memories_in_any_language_get_a_real_file_name(repo):
+    assert team.slug("价格以分为单位存储") == "价格以分为单位存储"
+    assert team.slug("Les prix sont stockés en centimes") == "les-prix-sont-stockés-en-centimes"
+    assert team.slug("!!!") == "memory"
+
+
+def test_starting_a_team_memory_writes_the_list_and_its_merge_rule_once(repo):
+    (repo / ".gitattributes").write_text("* text=auto")
+    team.init(repo)
+    assert (repo / "mnemolith.md").is_file() and not team.index_outdated(repo)
+    rules = (repo / ".gitattributes").read_text()
+    assert rules.startswith("* text=auto\n") and rules.count("mnemolith.md merge=union") == 1
+    assert not team.ensure_merge_rule(repo)
+    team.leave(repo)
+    team.init(repo)  # joining touches nothing in the repo
+    assert (repo / ".gitattributes").read_text() == rules
+
+
+def test_two_people_sharing_on_different_branches_merge_without_a_conflict(repo, tmp_path):
+    git(repo, "init", "-q")
+    team.init(repo)
+    team.add(repo, "Money is stored in cents.")
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "start")
+    main = git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    git(repo, "checkout", "-qb", "a")
+    team.add(repo, "Deploys go out on Tuesdays.")
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "a")
+    git(repo, "checkout", "-q", main); git(repo, "checkout", "-qb", "b")
+    team.add(repo, "Never cache prices.")
+    team.add(repo, "Api v1 is frozen.")
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "b")
+    merged = git(repo, "merge", "-q", "a", "-m", "merge")
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    assert len(team.current(repo)) == 4 and not team.index_outdated(repo)
+    listed = (repo / "mnemolith.md").read_text()
+    assert all(text in listed for text in ("Tuesdays", "Never cache", "frozen", "cents")) and "<<<<" not in listed
+
+
+def test_a_list_left_in_conflict_is_rebuilt_by_sync(repo):
+    team.init(repo)
+    team.add(repo, "Money is stored in cents.")
+    (repo / "mnemolith.md").write_text("<<<<<<< HEAD\n- a (a)\n=======\n- b (b)\n>>>>>>> x\n")
+    assert team.index_outdated(repo) and team.write_index(repo) and not team.index_outdated(repo)
+
+
+def test_a_starter_run_is_capped_and_the_pointer_is_added_once(repo, monkeypatch):
+    team.init(repo)
+    assert team.starter_limit() is None
+    monkeypatch.setenv(team.STARTER_ENV, "30")
+    assert team.starter_limit() == 30
+    cmd = team.starter_command(repo, "claude", repo / "mcp.json", limit=30)
+    assert cmd[:2] == ["claude", "-p"] and "--strict-mcp-config" in cmd and "Edit" not in cmd and "Write" not in cmd
+    (repo / "CLAUDE.md").write_text("# shop\n")
+    assert [p.name for p in team.add_pointer(repo)] == ["CLAUDE.md"]
+    assert team.add_pointer(repo) == [] and (repo / "CLAUDE.md").read_text().count("mnemolith.md") == 1
+
+
+def test_max_files_counts_the_files_the_text_names_too(repo):
+    team.init(repo)
+    for name in ("pyproject.toml", "server.json", "setup.cfg", "VERSION"):
+        (repo / name).write_text("x\n")
+    mem = team.add(repo, "Bump pyproject.toml, server.json, setup.cfg and VERSION together.", ["VERSION"], max_files=3)
+    assert [p for p, _ in mem.files] == ["VERSION", "pyproject.toml", "server.json"]
+
+
+def test_team_memorys_own_files_are_never_linked(repo):
+    team.init(repo)
+    mem = team.add(repo, "mnemolith.md is generated from .mnemolith/team/memories/.", ["mnemolith.md", ".mnemolith/team/README.md"])
+    assert mem.files == []
+    path = mem.path
+    path.write_text(path.read_text().replace("---\nmnemolith", "---\nmnemolith", 1).replace(
+        "status: active", "status: active\nfiles:\n  - mnemolith.md@000000000000", 1))
+    assert team.confirm(repo, mem.name).files == []  # confirming drops an old link to it

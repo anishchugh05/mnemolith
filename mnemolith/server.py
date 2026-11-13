@@ -824,8 +824,8 @@ def share_with_team(memory_id: str = "", fact: str = "", files: Optional[List[st
     Before calling, tell the user: it will be visible to everyone with access to this repo.
 
     memory_id: one of the user's own memories to share (e.g. "m42"); it moves to the team.
-    fact: or a new fact to share directly. Always pass files= with the files it depends on: that's how everyone's
-    AI tools learn when it may have gone out of date. For starter memories, read the repo and
+    fact: or a new fact to share directly. Always pass files= with the files or folders it depends on: that's how
+    everyone's AI tools learn when it may have gone out of date. For starter memories, read the repo and
     share at most 30 of the most useful facts, one call each.
     What belongs: decisions and their reasons, conventions, who owns what, setup gotchas, promises to partners.
     Not personal preferences, and never passwords, keys or tokens (those are refused)."""
@@ -833,7 +833,13 @@ def share_with_team(memory_id: str = "", fact: str = "", files: Optional[List[st
     root = repo_root()
     if not team.joined(root):
         return "This repo has no team memory in use here. The user can start or join one with `mnemolith team init`."
-    if not team.ai_allowed(root):
+    starter = team.starter_limit()  # set while `mnemolith team init` has the user's AI tool draft starter memories
+    if starter is not None:
+        if memory_id.strip():
+            return "This run only drafts new starter memories: pass fact=, not memory_id."
+        if len(team.load(root)) >= starter:
+            return "That's enough starter memories for the team to review in one go. Stop here and report how many you shared."
+    elif not team.ai_allowed(root):
         return ("The user hasn't allowed AI tools to share memories with the team in this repo yet. Ask them to run "
                 "`mnemolith team ai on` once (or turn it on in `mnemolith ui`), or to share it themselves with "
                 f"`mnemolith promote {memory_id or '<id>'}`. Don't run those commands for them.")
@@ -841,7 +847,11 @@ def share_with_team(memory_id: str = "", fact: str = "", files: Optional[List[st
         if memory_id.strip():
             mem = team.promote(root, project_name(), memory_id.strip())
         elif fact.strip():
-            mem = team.add(root, fact, files)
+            same = _team_hits(embed(fact), 1, 0.85)
+            if same:
+                return "Not shared: the team memory already has this:\n" + same[0]
+            # starter memories link a few files at most, or they flag on every unrelated edit
+            mem = team.add(root, fact, files, max_files=team.STARTER_MAX_FILES if starter is not None else None)
         else:
             return "Pass memory_id (one of the user's memories) or fact (a new one)."
     except team.SecretFound as e:
