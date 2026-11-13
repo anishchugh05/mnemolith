@@ -268,7 +268,9 @@ Never cache prices: they change during sales, and a cache served stale prices in
 ```sh
 mnemolith team init          # in the repo: starts one, or joins the one that's there
 mnemolith promote m42        # share one of your memories (ids are in `mnemolith list`)
-mnemolith team               # what the team knows, and what needs a look
+mnemolith team               # what the team knows, what's new, and what needs a look
+mnemolith team edit <name> "new wording"
+mnemolith team confirm <name>     # still true         mnemolith team retire <name>    # no longer true
 ```
 
 So a new team memory doesn't start empty, `team init` offers three things, each only if you say yes:
@@ -292,15 +294,26 @@ each teammate runs `mnemolith team init` in their copy to use it (joining never 
   retirement goes through your normal review, and git keeps the history.
 - **Recall reads both.** Your AI gets the team's memories first, labelled `team:<name>`, then your own. A personal
   memory that says nearly the same as a team one is pointed out, so it can be retired or the disagreement raised.
-- **Flagged for everyone.** Each team memory stores fingerprints of the files or folders it depends on (line
-  endings don't matter, so Windows and Mac agree; a folder counts as changed when anything in it does, up to 500
-  files). When one changes, every teammate's AI sees the memory as possibly outdated
+- **Flagged for everyone.** Each team memory stores fingerprints of what it depends on: a file, a folder (up to 500
+  files), or one part of a file. `shop/api/v1.py#product` follows the function `product`, `README.md#Releasing` a
+  section, `config.yml#timeout` a setting, so the memory is flagged when that part changes and not on every edit to
+  a big file. Line endings don't matter, so Windows and Mac agree. A file that was renamed or moved is followed:
+  `confirm` relinks it. When one changes, every teammate's AI sees the memory as possibly outdated
   until someone runs `mnemolith team confirm <name>` (still true) or `mnemolith team retire <name>`, and commits it.
 - **Sharing moves, it doesn't copy.** A shared memory leaves your own memories, so nobody sees the same fact twice.
+  Sharing something the team already has is refused, and `mnemolith team` points out two team memories that say
+  nearly the same thing. `mnemolith team unshare <name>` takes one back.
+- **A record of who and when.** Each file carries who wrote it, and who last confirmed or reworded it and when.
+  `mnemolith team` marks what arrived since you last looked.
+- **Caught in review.** `mnemolith team action` adds a GitHub workflow that comments on a pull request when it
+  changes something a team memory depends on, unless the memory was updated in the same pull request.
+  `mnemolith team check --base origin/main` runs the same check locally. New in 0.4 and lightly tested.
 - **No merge conflicts from sharing.** Each memory is its own file, and the `.gitattributes` line tells git to keep
   both sides' lines in `mnemolith.md`, so two people sharing on different branches merge cleanly.
-- **Conflicts are held back.** If two people change the same memory and git can't merge them, `mnemolith team` shows
-  both versions and recall leaves that memory out until it's settled.
+- **Conflicts are held back.** If two people change the same memory and git can't merge them, `mnemolith team` and
+  the dashboard show both versions, and recall leaves that memory out until it's settled:
+  `mnemolith team keep <name> mine` (or `theirs`), then commit. A file that a hand edit broke is held back the same
+  way, with what's wrong.
 - **Follows branches.** A memory added on a branch exists only there until it merges.
 
 **Safety**
@@ -525,10 +538,12 @@ What's coming next, roughly in order. Ideas and pushback are welcome in
 **Now: team memory (0.4).** One shared memory per repo, kept as plain files and reviewed like code. See
 [Team memory](#team-memory).
 
-**Next: catching it in review (December)**
-- **Stale memories flagged in pull requests.** A GitHub Action comments when a pull request changes files that team
-  memories depend on, so outdated knowledge gets caught in review.
+**Next: more help in review (December)**
+- **The pull request check, hardened.** A first version is in 0.4 (`mnemolith team action`); it needs use on real
+  repos.
+- **Mender for team memories.** When a team memory is flagged, Mender drafts the fix as an edit to its file.
 - **`mnemolith.md` kept up to date** after each merge, so nobody runs `mnemolith team sync` by hand.
+- **Starter memories from Cursor and Codex**, not only Claude Code.
 
 **Then: memory for any folder (early 2027)**
 - Memories for folders that aren't code, tied to PDFs, Word files and spreadsheets, and flagged when those change,

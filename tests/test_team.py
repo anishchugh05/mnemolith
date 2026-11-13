@@ -435,3 +435,200 @@ def test_team_memorys_own_files_are_never_linked(repo):
     path.write_text(path.read_text().replace("---\nmnemolith", "---\nmnemolith", 1).replace(
         "status: active", "status: active\nfiles:\n  - mnemolith.md@000000000000", 1))
     assert team.confirm(repo, mem.name).files == []  # confirming drops an old link to it
+
+
+# ---------- second round: duplicates, moves, parts of files, edits, conflicts, pull request check ----------
+
+def test_sharing_what_the_team_already_has_is_refused(repo, monkeypatch):
+    team.init(repo)
+    team.add(repo, "Prices are stored in cents, never floats.")
+    monkeypatch.setattr(server, "run", lambda *a: ["id", "m9", "project", "shop", "status", "active", "files", "",
+                                                   "text", "Prices are stored in cents, never floats"])
+    with pytest.raises(team.TeamError, match="already has this"):
+        team.promote(repo, "shop", "m9")
+    assert len(team.load(repo)) == 1
+
+
+def test_a_renamed_file_is_followed_when_the_memory_is_confirmed(repo):
+    git(repo, "init", "-q")
+    team.init(repo)
+    (repo / "shop").mkdir()
+    (repo / "shop" / "pricing.py").write_text("RATE = 8\n")
+    mem = team.add(repo, "The tax rate lives in the pricing module.", ["shop/pricing.py"])
+    (repo / "shop" / "pricing.py").rename(repo / "shop" / "prices.py")
+    assert team.changed(team.find(repo, mem.name), repo) == ["shop/pricing.py moved to shop/prices.py"]
+    done = team.confirm(repo, mem.name, by="Sam Lee")
+    assert [p for p, _ in done.files] == ["shop/prices.py"] and team.changed(done, repo) == []
+    assert done.meta["confirmed"].endswith("by Sam Lee")
+    (repo / "shop" / "prices.py").unlink()
+    with pytest.raises(team.TeamError, match="no longer exists"):
+        team.confirm(repo, mem.name)
+
+
+CODE = '''RATE = 8
+
+
+def product(p):
+    return {"name": p["name"], "price": p["price_cents"]}
+
+
+def listing(ps):
+    return [product(p) for p in ps]
+
+
+class Cart:
+    def total(self):
+        return 0
+'''
+
+
+def test_a_memory_can_follow_one_part_of_a_file(repo):
+    team.init(repo)
+    (repo / "api.py").write_text(CODE)
+    mem = team.add(repo, "API product responses (api.py) are frozen for a partner.", ["api.py#product"])
+    assert [p for p, _ in mem.files] == ["api.py#product"]  # the part replaces the whole file the text names
+    (repo / "api.py").write_text(CODE.replace("for p in ps]", "for p in ps if p]").replace("RATE = 8", "RATE = 9"))
+    assert team.changed(team.find(repo, mem.name), repo) == []  # other parts of the file changed
+    (repo / "api.py").write_text(CODE.replace('p["price_cents"]}', 'p["price_cents"], "id": 1}'))
+    assert team.changed(team.find(repo, mem.name), repo) == ["`product` in api.py changed"]
+    (repo / "api.py").write_text(CODE.replace("def product(p)", "def item(p)"))
+    assert team.changed(team.find(repo, mem.name), repo) == ["`product` is no longer in api.py"]
+
+
+@pytest.mark.parametrize("text,name,first,last", [
+    (CODE, "product", "def product(p):", 'return {"name": p["name"], "price": p["price_cents"]}'),
+    (CODE, "Cart", "class Cart:", "return 0"),
+    (CODE, "RATE", "RATE = 8", "RATE = 8"),
+    ("# Shop\n\n## Releasing\n\nBump and tag.\n\n### Notes\n\nx\n\n## Testing\n\nRun make.\n", "Releasing", "## Releasing", "x"),
+    ("server:\n  port: 80\n  timeout: 30\nclient:\n  retries: 2\n", "server", "server:", "timeout: 30"),
+    ("function charge(amount) {\n  return amount;\n}\n\nconst other = 1;\n", "charge", "function charge(amount) {", "}"),
+    ("public class Shop {\n    public static int total(int a) {\n        return a;\n    }\n}\n", "total",
+     "public static int total(int a) {", "}"),
+    ('[tool.hatch]\nartifacts = [\n  "a.jar",\n]\nname = "x"\n', "artifacts", "artifacts = [", "]"),
+])
+def test_parts_of_files_are_found_in_code_config_and_docs(text, name, first, last):
+    part = team.section_text(text, name).split("\n")
+    assert part[0].strip() == first and part[-1].strip() == last
+
+
+def test_a_call_is_not_mistaken_for_the_definition():
+    text = "def run():\n    return product(1)\n\n\ndef product(p):\n    return p\n"
+    assert team.section_text(text, "product").startswith("def product(p):")
+    assert team.section_text(text, "nothing_here") is None
+
+
+def test_a_file_a_hand_edit_broke_is_held_back_and_named(repo):
+    team.init(repo)
+    write(repo, "open-header", "---\nstatus: active\nPrices are in cents.\n")
+    write(repo, "typo", "---\nstatus: retierd\n---\nPrices are in cents.\n")
+    write(repo, "fine", "Prices are in cents.\n")
+    assert [m.name for m in team.current(repo)] == ["fine"]
+    problems = {m.name: m.problem for m in team.load(repo)}
+    assert "never closed" in problems["open-header"] and "retierd" in problems["typo"] and not problems["fine"]
+    with pytest.raises(team.TeamError, match="can't be read"):
+        team.confirm(repo, "typo")
+
+
+def test_rewording_checks_for_secrets_and_records_who(repo):
+    team.init(repo)
+    mem = team.add(repo, "Deploys go out on Tuesdays.")
+    with pytest.raises(team.SecretFound):
+        team.edit(repo, mem.name, "The deploy password is hunter2")
+    with pytest.raises(team.TeamError):
+        team.edit(repo, mem.name, "   ")
+    done = team.edit(repo, mem.name, "Deploys go out on Thursdays.", by="Sam Lee")
+    assert done.text == "Deploys go out on Thursdays." and done.meta["edited"].endswith("by Sam Lee")
+    assert "Thursdays" in (repo / "mnemolith.md").read_text() and "Tuesdays" not in (repo / "mnemolith.md").read_text()
+
+
+def conflict(repo, mine, theirs):
+    """A real git conflict between two branches that each wrote the same memory file."""
+    git(repo, "init", "-q")
+    team.init(repo)
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "start")
+    main = git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    git(repo, "checkout", "-qb", "theirs")
+    name = team.add(repo, theirs, by="Priya").name
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "theirs")
+    git(repo, "checkout", "-q", main)
+    path = team.folder(repo) / "memories" / f"{name}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"---\nmnemolith: 1\nstatus: active\nauthor: Sam\n---\n{mine}\n")
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "mine")
+    assert git(repo, "merge", "theirs").returncode != 0
+    return name
+
+
+def test_two_people_writing_the_same_memory_file_shows_both_and_keeps_one(repo):
+    name = conflict(repo, "Deploys go out on Tuesdays.", "Deploys go out on Thursdays after standup.")
+    mem = team.find(repo, name)
+    assert team.conflicted(mem) and team.current(repo) == []
+    assert team.sides(mem) == ("Deploys go out on Tuesdays.", "Deploys go out on Thursdays after standup.")
+    with pytest.raises(team.TeamError, match="in conflict"):
+        team.confirm(repo, name)
+    kept = team.keep(repo, name, "theirs")
+    assert not team.conflicted(kept) and kept.text == "Deploys go out on Thursdays after standup."
+    assert kept.meta["author"] == "Priya" and "<<<<" not in kept.path.read_text()
+    assert [m.name for m in team.current(repo)] == [name]
+
+
+def test_taking_a_memory_back_retires_the_teams_copy(repo, monkeypatch):
+    team.init(repo)
+    mem = team.add(repo, "Deploys go out on Tuesdays.")
+    saved = []
+    monkeypatch.setattr(server, "embed", lambda text: ["0.1"])
+    monkeypatch.setattr(server, "add_memory", lambda project, text, files, vector=None: (saved.append((project, text)) or ("m5", "saved", [])))
+    back, new_id = team.unshare(repo, "shop", mem.name)
+    assert new_id == "m5" and saved == [("shop", "Deploys go out on Tuesdays.")]
+    assert back.status == "retired" and team.current(repo) == [] and back.path.is_file()
+
+
+def test_new_arrivals_are_marked_until_looked_at_and_your_own_never_are(repo):
+    team.init(repo)
+    team.add(repo, "Deploys go out on Tuesdays.")  # mine: not news to me
+    assert team.unseen(repo) == []
+    write(repo, "from-a-pull", "Prices are in cents.\n")
+    assert team.unseen(repo) == ["from-a-pull"]
+    team.mark_seen(repo)
+    assert team.unseen(repo) == []
+
+
+def test_two_team_memories_saying_the_same_thing_are_paired(repo):
+    team.init(repo)
+    a = team.add(repo, "Deploys go out on Tuesdays after the standup.")
+    write(repo, "also-deploys", "Deploys go out on Tuesdays after standup.\n")
+    team.add(repo, "Prices are stored in integer cents.")
+    assert [(x.name, y.name) for x, y, _ in team.twins(repo)] == [("also-deploys", a.name)]
+
+
+def test_a_pull_request_is_checked_against_what_it_changed(repo):
+    git(repo, "init", "-q")
+    team.init(repo)
+    (repo / "api.py").write_text(CODE)
+    (repo / "docs").mkdir(); (repo / "docs" / "a.md").write_text("a\n")
+    part = team.add(repo, "Product responses are frozen for a partner.", ["api.py#product"])
+    whole = team.add(repo, "The API module has no side effects on import.", ["api.py"])
+    docs = team.add(repo, "Docs are written in plain Markdown.", ["docs"])
+    other = team.add(repo, "The packageManager is pnpm.", ["package.json"])
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "start")
+    base = git(repo, "rev-parse", "HEAD").stdout.strip()
+    git(repo, "checkout", "-qb", "feature")
+    (repo / "api.py").write_text(CODE.replace("for p in ps]", "for p in ps if p]"))
+    git(repo, "commit", "-qam", "listing skips empties")
+    found = {f["name"]: f["why"] for f in team.pr_check(repo, base)}
+    assert list(found) == [whole.name] and found[whole.name] == ["`api.py` changed"]  # `product` itself didn't change
+    (repo / "api.py").write_text(CODE.replace('p["price_cents"]}', 'p["price_cents"], "id": 1}'))
+    (repo / "docs" / "b.md").write_text("b\n")
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "more")
+    assert sorted(f["name"] for f in team.pr_check(repo, base)) == sorted([part.name, whole.name, docs.name])
+    (repo / "docs" / "c.md").write_text("c\n")
+    git(repo, "add", "docs/c.md")  # not committed yet: still counts
+    assert docs.name in [f["name"] for f in team.pr_check(repo, base)]
+    (repo / "docs" / "d.md").write_text("d\n")  # not even added to git: still counts
+    team.confirm(repo, part.name); team.retire(repo, whole.name)
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "looked at the memories")
+    found = team.pr_check(repo, base)
+    assert [f["name"] for f in found] == [docs.name] and other.name not in str(found)
+    comment = team.pr_comment(found)
+    assert "1 team memory may be out of date" in comment and "docs/" in comment and team.pr_comment([]) == ""
+    assert team.write_workflow(repo) and not team.write_workflow(repo)

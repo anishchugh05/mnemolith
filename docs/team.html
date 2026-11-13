@@ -343,6 +343,14 @@
             <p>One file per memory, so two people sharing on different branches merge cleanly. If two people edit the same memory, Mnemolith shows both versions and keeps it out of recall until it&rsquo;s settled.</p>
           </div>
           <div class="safety-row">
+            <h3>Flags only what matters</h3>
+            <p>A memory can follow one function, setting or section instead of a whole file, so it&rsquo;s flagged when that part changes, not on every edit. Renamed files are followed.</p>
+          </div>
+          <div class="safety-row">
+            <h3>Caught in review</h3>
+            <p><code>mnemolith team action</code> adds a GitHub workflow that comments on pull requests that change something a team memory depends on. New, and lightly tested.</p>
+          </div>
+          <div class="safety-row">
             <h3>Works across tools</h3>
             <p>Claude Code, Cursor, Codex and Claude Desktop read the same team memory, whatever each teammate prefers.</p>
           </div>
@@ -528,15 +536,18 @@
                 Each one remembers the versions of the files it depends on. When one
                 changes, every teammate&rsquo;s AI sees it flagged as possibly
                 outdated and checks the code first. Someone confirms it
-                (<code>mnemolith team confirm</code>) or retires it, and commits that.
+                (<code>mnemolith team confirm</code>), rewords it
+                (<code>mnemolith team edit</code>) or retires it, and commits that.
+                The file records who did, and when.
               </p>
             </details>
             <details class="faq-item">
               <summary>Can I edit a team memory by hand?</summary>
               <p>
-                Yes. It&rsquo;s a short text file. Edit it like any other file, and
-                run <code>mnemolith team sync</code> to update <code>mnemolith.md</code>.
-                To retire one, set <code>status: retired</code> in its header.
+                Yes. Use <strong>Reword</strong> in the dashboard or
+                <code>mnemolith team edit</code>, or open the file: it&rsquo;s short
+                plain text. After a hand edit, run <code>mnemolith team sync</code> to
+                update <code>mnemolith.md</code>.
               </p>
             </details>
             <details class="faq-item">

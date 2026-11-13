@@ -660,30 +660,93 @@ def cmd_team(args) -> int:
     if not team.exists(root):
         print(f"{root.name} has no team memory yet. `mnemolith team init` starts one.")
         return 0 if args.action == "status" else 1
-    if args.action == "confirm":
+    def named(example: str) -> bool:
         if not args.name:
-            print("Which memory? Pass its name as `mnemolith team` shows it, e.g. `mnemolith team confirm use-pnpm`.")
-            return 1
-        try:
-            mem = team.confirm(root, args.name)
-        except team.TeamError as e:
-            print(e)
-            return 1
-        print(f"Confirmed {mem.name}: {mem.path.relative_to(root).as_posix()} now records the current versions of "
-              f"its files. Commit that change so it's confirmed for your team too.")
-        return 0
-    if args.action == "retire":
-        if not args.name:
-            print("Which memory? Pass its name as `mnemolith team` shows it, e.g. `mnemolith team retire use-pnpm`.")
-            return 1
-        try:
+            print(f"Which memory? Pass its name as `mnemolith team` shows it, e.g. `mnemolith team {example}`.")
+        return bool(args.name)
+
+    def where_is(mem) -> str:
+        return mem.path.relative_to(root).as_posix()
+
+    try:
+        if args.action == "confirm":
+            if not named("confirm use-pnpm"):
+                return 1
+            names = [args.name] + ([args.text] if args.text else []) + list(args.more or [])
+            for name in names:
+                print(f"Confirmed {team.confirm(root, name).name}.")
+            one = len(names) == 1
+            print(f"{'It' if one else 'They'} now record{'s' if one else ''} the current versions of what "
+                  f"{'it depends' if one else 'they depend'} on, and that you confirmed {'it' if one else 'them'}. "
+                  f"Commit the change so your team gets it too.")
+            return 0
+        if args.action == "retire":
+            if not named("retire use-pnpm"):
+                return 1
             mem = team.retire(root, args.name)
-        except team.TeamError as e:
-            print(e)
-            return 1
-        print(f"Retired {mem.name}: its file now says `status: retired`, so AI tools stop using it and its history "
-              f"stays in git. Commit that change so it's retired for your team too.")
-        return 0
+            print(f"Retired {mem.name}: its file now says `status: retired`, so AI tools stop using it and its history "
+                  f"stays in git. Commit that change so it's retired for your team too.")
+            return 0
+        if args.action == "edit":
+            if not named('edit use-pnpm "We use pnpm 9, not npm."'):
+                return 1
+            if not args.text:
+                mem = team.find(root, args.name)
+                print(f"Pass the new wording: `mnemolith team edit {args.name} \"...\"`." + (
+                    f"\nIt says now: \"{mem.one_line}\"\nOr edit {where_is(mem)} by hand and run `mnemolith team sync`."
+                    if mem else ""))
+                return 1
+            try:
+                mem = team.edit(root, args.name, args.text)
+            except team.SecretFound as e:
+                print(str(e).replace("Not shared", "Not changed"))
+                if not e.overridable or not _ask("If you're sure none of that is a secret, save it anyway?"):
+                    return 1
+                mem = team.edit(root, args.name, args.text, allow_soft=True)
+            print(f"Changed {mem.name}: {where_is(mem)}\nCommit it (and {team.INDEX}) so your team gets the new wording.")
+            return 0
+        if args.action == "keep":
+            if not named("keep use-pnpm mine") or args.text not in ("mine", "theirs"):
+                print("Say which version to keep: `mnemolith team keep <name> mine` or `... theirs`.")
+                return 1
+            mem = team.keep(root, args.name, args.text)
+            print(f"Kept {'your' if args.text == 'mine' else 'their'} version of {mem.name}: \"{mem.one_line[:160]}\"\n"
+                  f"Now `git add {where_is(mem)}` and commit, to finish the merge.")
+            return 0
+        if args.action == "unshare":
+            if not named("unshare use-pnpm"):
+                return 1
+            from .server import EngineDown, project_name, store_down
+            try:
+                mem, new_id = team.unshare(root, project_name(), args.name)
+            except EngineDown as e:
+                print(store_down(e))
+                return 1
+            print(f"{mem.name} is yours again as {new_id}, and the team's copy is retired (its file stays, for the history).\n"
+                  f"Commit that change so your team's AI tools stop using it.")
+            return 0
+        if args.action == "check":
+            found = team.pr_check(root, args.base or "origin/main")
+            if args.markdown:
+                print(team.pr_comment(found), end="")
+            elif not found:
+                print(f"No team memory depends on anything this branch changed since {args.base or 'origin/main'}.")
+            else:
+                print(f"{len(found)} team {'memory' if len(found) == 1 else 'memories'} may be out of date after this branch:")
+                for f in found:
+                    print(f"  {f['name']}  {f['text'][:100]}\n      {'; '.join(f['why']).replace('`', '')}")
+                print("Confirm, edit or retire each one, and commit that with your change.")
+            return 1 if found and args.strict else 0
+        if args.action == "action":
+            if team.write_workflow(root):
+                print(f"Added {team.WORKFLOW}. Once it's merged, every pull request that changes something a team memory\n"
+                      f"depends on gets a comment listing those memories. It needs Mnemolith 0.4 or newer on PyPI.")
+            else:
+                print(f"{team.WORKFLOW} is already there.")
+            return 0
+    except team.TeamError as e:
+        print(e)
+        return 1
     if args.action == "sync":
         changed = team.write_index(root)
         rule = team.ensure_merge_rule(root)
@@ -712,37 +775,62 @@ def cmd_team(args) -> int:
     # status
     mems = team.load(root)
     live = team.current(root)
+    new = set(team.unseen(root)) if team.joined(root) else set()
     print(f"Team memory for {root.name}: {len(live)} {'memory' if len(live) == 1 else 'memories'} in {where}memories/"
-          + (" (you're using it)" if team.joined(root) else "\nYou aren't using it yet: run `mnemolith team init`."))
+          + (" (you're using it)" if team.joined(root) else "\nYou aren't using it yet: run `mnemolith team init`.")
+          + (f"\n{len(new)} new since you last looked, marked with *." if new else ""))
     width = max((len(m.name) for m in mems), default=0)
+    flagged = []
+
     def short(text: str, limit: int = 100) -> str:
         return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
     for m in mems:
         text = short(m.one_line)
+        file = m.path.relative_to(root).as_posix()
         if team.conflicted(m):
-            file = m.path.relative_to(root).as_posix()
             both = team.sides(m)
             if both:
                 text = "(two versions)"
                 note = (f"\n      !! two people changed this and git couldn't merge them:\n"
                         f"         yours:  {short(both[0], 160)}\n"
                         f"         theirs: {short(both[1], 160)}\n"
-                        f"         Open {file}, keep the right wording, remove the <<<<<<< ======= >>>>>>> lines,\n"
-                        f"         then `git add` it and commit. Your AI tools don't see this memory until then.")
+                        f"         Keep one with `mnemolith team keep {m.name} mine` (or `theirs`), or edit {file}\n"
+                        f"         to combine them. Then `git add` it and commit. Your AI tools don't see it until then.")
             else:
                 text = "(in conflict)"
-                note = (f"\n      !! two people changed this and git couldn't merge them. Open {file}, settle it, and\n"
-                        f"         remove the <<<<<<< ======= >>>>>>> lines. Your AI tools don't see this memory until then.")
+                note = (f"\n      !! two people changed this and git couldn't merge them. The wording is the same on both\n"
+                        f"         sides, so `mnemolith team keep {m.name} mine` settles it. Then `git add {file}` and commit.")
         elif not m.readable:
             note = "   !! written by a newer Mnemolith: update to read it"
+        elif m.problem:
+            text = "(can't be read)"
+            note = f"\n      !! {m.problem}. Fix {file}. Your AI tools don't see this memory until then."
         elif m.status != "active":
             note = f"   ({m.status})"
         else:
             what = team.changed(m, root)
-            note = (f"\n      !! possibly outdated: {', '.join(what)}. Check it, then `mnemolith team confirm {m.name}` "
-                    f"if it's still true, or `mnemolith team retire {m.name}` if it isn't") if what else ""
-        print(f"  {m.name:<{width}}  {text}{note}")
+            moved = what and all(" moved to " in w for w in what)
+            what = [w.replace("`", "") for w in what]
+            note = (f"\n      !! {', '.join(what)}. `confirm` follows the move." if moved else
+                    f"\n      !! possibly outdated: {', '.join(what)}." if what else "")
+            if what:
+                flagged.append(m.name)
+        print(f"{'*' if m.name in new else ' '} {m.name:<{width}}  {text}{note}")
+    if flagged:
+        print(f"\nFor each flagged memory, check the code, then: `mnemolith team confirm <name>` if it's still true, "
+              f"`mnemolith team edit <name> \"...\"` to reword it, or `mnemolith team retire <name>`."
+              + (f"\nTo confirm all {len(flagged)} at once:\n  mnemolith team confirm {' '.join(flagged)}" if len(flagged) > 1 else ""))
+    try:
+        pairs = team.twins(root)
+    except Exception:
+        pairs = []  # needs the embedding model; the list above doesn't
+    if pairs:
+        print("\nThese say nearly the same thing, or disagree. Keep one of each pair (retire or edit the other):")
+        for a, b, _score in pairs[:10]:
+            print(f"  {a.name}: {short(a.one_line, 90)}\n  {b.name}: {short(b.one_line, 90)}\n")
+    if team.joined(root):
+        team.mark_seen(root)
     if team.index_outdated(root):
         print(f"\n{team.INDEX} doesn't match these files any more. `mnemolith team sync` rebuilds it.")
     return 0
@@ -928,12 +1016,21 @@ def main(argv=None) -> None:
     p.set_defaults(func=cmd_export)
     p = sub.add_parser("team", help="team memory: memories shared with everyone on a repo, as files in the repo")
     p.add_argument("action", nargs="?", default="status",
-                   choices=["init", "status", "confirm", "retire", "sync", "import", "draft", "ai", "remove"],
+                   choices=["init", "status", "confirm", "retire", "edit", "keep", "unshare", "sync", "import",
+                            "draft", "check", "action", "ai", "remove"],
                    help="init: start one here, or use the one that's here. confirm/retire <name>: a memory is still "
                         "true, or no longer is. sync: rebuild mnemolith.md. import: add notes from CLAUDE.md and "
-                        "AGENTS.md. draft: have Claude Code read the repo and draft starter memories. ai on|off: let "
-                        "your AI tools share when you ask. remove: stop using it here")
-    p.add_argument("name", nargs="?", help="with confirm or retire: the memory's name. With ai: on or off")
+                        "AGENTS.md. draft: have Claude Code read the repo and draft starter memories. edit <name> \"new "
+                        "wording\". keep <name> mine|theirs: settle a merge conflict. unshare <name>: take a memory back. "
+                        "check: which memories this branch may have made out of date. action: add the GitHub workflow "
+                        "that runs check on pull requests. ai on|off: let your AI tools share when you ask. remove: "
+                        "stop using it here")
+    p.add_argument("name", nargs="?", help="the memory's name, as `mnemolith team` shows it. With ai: on or off")
+    p.add_argument("text", nargs="?", help="with edit: the new wording. With keep: mine or theirs")
+    p.add_argument("more", nargs="*", help="with confirm: more names, to confirm several at once")
+    p.add_argument("--base", help="with check: the branch to compare with (default origin/main)")
+    p.add_argument("--markdown", action="store_true", help="with check: print a pull request comment, or nothing")
+    p.add_argument("--strict", action="store_true", help="with check: exit with an error if any memory is affected")
     p.add_argument("--yes", "-y", action="store_true", help="don't ask for confirmation")
     p.set_defaults(func=cmd_team)
     p = sub.add_parser("promote", help="share one of your memories with your team (it moves to the repo's team memory)")

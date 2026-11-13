@@ -57,7 +57,7 @@ like any other file in the repo.
 - To change a memory, edit its file. To retire one, set `status: retired` in its header.
 - `mnemolith.md` at the top of the repo lists every memory in one line, for teammates and AI tools without
   Mnemolith. It's generated: `mnemolith team sync` rebuilds it after you edit a memory by hand.
-- `files:` lists the files (or folders) a memory depends on. When one changes, Mnemolith shows the memory as possibly
+- `files:` lists what a memory depends on: a file, a folder, or one part of a file (`shop/api.py#product`). When one changes, Mnemolith shows the memory as possibly
   outdated until someone runs `mnemolith team confirm <name>` or fixes it.
 - Mnemolith never commits. Changes here are yours to commit and review.
 """
@@ -74,6 +74,7 @@ class Memory:
     text: str
     meta: Dict[str, str] = field(default_factory=dict)  # header lines other than files, in the file's order
     files: List[Tuple[str, str]] = field(default_factory=list)  # (repo-relative path, fingerprint or "")
+    problem: str = ""  # why this file can't be used as it is (a hand edit broke it), in words for the user
 
     @property
     def id(self) -> str:
@@ -158,6 +159,21 @@ def parse(raw: str) -> Tuple[Dict[str, str], List[Tuple[str, str]], str]:
     return meta, [f for f in files if f[0]], body.split("\n", 1)[1].strip() if "\n" in body else ""
 
 
+STATUSES = ("active", "retired", "replaced")
+
+
+def problem_in(raw: str, meta: Dict[str, str]) -> str:
+    """What's wrong with a memory file that a hand edit broke, or "" if it's fine. A broken file is held back
+    from AI tools and shown to the user, instead of being fed to the AI as if it were a fact."""
+    raw = raw.replace("\r\n", "\n").lstrip("\ufeff")
+    if raw.startswith("---\n") and raw.find("\n---", 3) == -1:
+        return "its header is never closed: the second --- line is missing"
+    status = (meta.get("status") or "active").strip().lower()
+    if status not in STATUSES:
+        return f"its status is '{status}', which isn't active or retired"
+    return ""
+
+
 def render(mem: Memory) -> str:
     lines = ["---"] + [f"{key}: {value}" for key, value in mem.meta.items()]
     if mem.files:
@@ -170,16 +186,18 @@ def load(root: Path) -> List[Memory]:
     found = []
     for path in sorted((folder(root) / "memories").glob("*.md")):
         try:
-            meta, files, text = parse(path.read_text(encoding="utf-8", errors="replace"))
+            raw = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        found.append(Memory(path.stem, path, text, meta, files))
+        meta, files, text = parse(raw)
+        found.append(Memory(path.stem, path, text, meta, files, problem_in(raw, meta)))
     return found
 
 
 def current(root: Path) -> List[Memory]:
     """The memories recall uses: active, written in a format this version understands, and not empty."""
-    return [m for m in load(root) if m.status == "active" and m.readable and m.text.strip() and not conflicted(m)]
+    return [m for m in load(root) if m.status == "active" and m.readable and not m.problem and m.text.strip()
+            and not conflicted(m)]
 
 
 def find(root: Path, name: str) -> Optional[Memory]:
@@ -227,11 +245,74 @@ def _folder_files(root: Path, path: str) -> Optional[List[str]]:
     return names if len(names) <= MAX_FOLDER_FILES else None
 
 
-def _now(root: Path, path: str) -> str:
-    """The fingerprint of a linked file or folder as it is now; "missing" if it's gone (or, for a folder, empty
-    or too big to follow). A folder's fingerprint covers the names and contents of the files in it."""
+# A memory can depend on one part of a file instead of the whole file: "shop/api/v1.py#product" follows the
+# function `product`, "README.md#Releasing" a section, "config.yml#timeout" a setting. Then only a change to that
+# part flags the memory, not every edit to a big file.
+
+_LEAD = (r"(?:(?:export|default|public|private|protected|internal|static|async|final|abstract|override|pub|def|class|"
+         r"function|func|fn|fun|const|let|var|val|type|interface|struct|enum|impl|trait|module|object|namespace|"
+         r"macro_rules!)\s+)+")
+_NOT_A_DEFINITION = re.compile(r"^\s*(?:return|await|yield|if|elif|else|while|for|throw|raise|new|assert|print|del)\b")
+
+
+def split_link(root: Path, link: str) -> Tuple[str, str]:
+    """"shop/a.py#product" -> ("shop/a.py", "product"); a plain path -> (path, ""). A real file whose name
+    happens to contain # stays whole."""
+    if "#" not in link or (root / link).exists():
+        return link, ""
+    path, _, name = link.rpartition("#")
+    return (path, name.strip()) if path and name.strip() else (link, "")
+
+
+def section_text(text: str, name: str) -> Optional[str]:
+    """The part of a file called `name`: a function, class or setting (through the last line indented under it),
+    or a Markdown section (through the next heading of the same level). None if the file has no such part."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    word = re.escape(name)
+    heading = re.compile(r"^(#{1,6})\s+" + word + r"\s*#*\s*$", re.I)
+    for i, line in enumerate(lines):
+        m = heading.match(line)
+        if m:
+            level = len(m.group(1))
+            end = next((j for j in range(i + 1, len(lines))
+                        if re.match(r"^#{1," + str(level) + r"}\s", lines[j])), len(lines))
+            return "\n".join(l.rstrip() for l in lines[i:end]).strip()
+    tries = [re.compile(r"^(\s*)" + _LEAD + r"[\w.<>\[\]*&\s]*?\b" + word + r"\b"),          # def product / class Product
+             re.compile(r"^(\s*)[\"']?" + word + r"[\"']?\s*(?::|=|\+=)"),                    # timeout: 30 / "name": ... / X = 1
+             re.compile(r"^(\s*)[\w<>\[\],*&\s]*?\b" + word + r"\s*\(")]                    # int product(... / product(p) {
+    for pattern in tries:
+        for i, line in enumerate(lines):
+            m = pattern.match(line)
+            if not m or _NOT_A_DEFINITION.match(line):
+                continue
+            indent = len(m.group(1).expandtabs(4))
+            end = i + 1
+            while end < len(lines):
+                nxt = lines[end]
+                if nxt.strip() and len(nxt.expandtabs(4)) - len(nxt.expandtabs(4).lstrip()) <= indent:
+                    if nxt.strip()[0] in "})]":  # the line that closes it
+                        end += 1
+                    break
+                end += 1
+            return "\n".join(l.rstrip() for l in lines[i:end]).strip()
+    return None
+
+
+def _section_print(text: str, name: str) -> str:
+    part = section_text(text, name)
+    return "missing" if part is None else hashlib.sha1(part.encode("utf-8")).hexdigest()[:12]
+
+
+def _now(root: Path, link: str) -> str:
+    """The fingerprint of a linked file, folder or part of a file as it is now; "missing" if it's gone (or, for
+    a folder, empty or too big to follow). A folder's fingerprint covers the names and contents of its files."""
     try:
+        path, name = split_link(root, link)
         target = root / path
+        if name:
+            if not target.is_file():
+                return "missing"
+            return _section_print(target.read_bytes().decode("utf-8", errors="replace"), name)
         if target.is_file():
             return fingerprint(target)
         if not target.is_dir():
@@ -240,49 +321,153 @@ def _now(root: Path, path: str) -> str:
         if not names:
             return "missing"
         h = hashlib.sha1()
-        for name in names:
-            h.update(f"{name}\0{fingerprint(root / name)}\n".encode("utf-8"))
+        for file in names:
+            h.update(f"{file}\0{fingerprint(root / file)}\n".encode("utf-8"))
         return h.hexdigest()[:12]
     except OSError:
         return "missing"
+
+
+MAX_MOVE_SEARCH = 4000  # files looked through when a linked file is gone, to see where it went
+
+
+def moved_to(root: Path, link: str, saved: str = "") -> Optional[str]:
+    """Where a linked file went, if it was renamed or moved: the link to use now, or None. A file with the same
+    contents somewhere else is a sure match; otherwise the only file with the same name is taken to be it."""
+    path, name = split_link(root, link)
+    if (root / path).exists():
+        return None
+    try:
+        out = subprocess.run(["git", "ls-files", "-co", "--exclude-standard"], cwd=root, capture_output=True,
+                             text=True, timeout=10)
+        files = [f for f in out.stdout.splitlines() if f] if out.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError):
+        files = []
+    files = [f for f in files if (root / f).is_file() and not f.startswith(FOLDER + "/")][:MAX_MOVE_SEARCH]
+    base = Path(path).name
+    same_name = [f for f in files if Path(f).name == base]
+    found = None
+    if saved and not name:
+        pool = same_name + [f for f in files if Path(f).suffix == Path(path).suffix and f not in same_name]
+        for f in pool:
+            try:
+                if (root / f).stat().st_size <= 512_000 and fingerprint(root / f) == saved:
+                    found = f
+                    break
+            except OSError:
+                continue
+    if found is None and len(same_name) == 1:
+        found = same_name[0]
+    if found is None:
+        return None
+    return f"{found}#{name}" if name else found
+
+
+def describe(link: str, root: Path) -> str:
+    path, name = split_link(root, link)
+    return f"`{name}` in {path}" if name else path
 
 
 def changed(mem: Memory, root: Path) -> List[str]:
     """What happened to the files this memory depends on since it was last confirmed: ["a.py changed", ...].
     Files listed without a fingerprint (typed by hand) aren't tracked until the memory is confirmed."""
     out = []
-    for path, saved in mem.files:
-        if saved:
-            now = _now(root, path)
-            if now != saved:
-                out.append(f"{path} {'was deleted' if now == 'missing' else 'changed'}")
+    for link, saved in mem.files:
+        if not saved:
+            continue
+        now = _now(root, link)
+        if now == saved:
+            continue
+        what = describe(link, root)
+        if now != "missing":
+            out.append(f"{what} changed")
+            continue
+        new = moved_to(root, link, saved)
+        path, name = split_link(root, link)
+        if new:
+            out.append(f"{path} moved to {split_link(root, new)[0]}")
+        elif name and (root / path).is_file():
+            out.append(f"`{name}` is no longer in {path}")
+        else:
+            out.append(f"{path} was deleted")
     return out
 
 
 def linkable(path: str) -> bool:
     """Whether a memory may depend on this path: inside the repo, and not one of team memory's own files, which
     change every time anyone shares something and would flag the memory over and over."""
-    p = Path(path)
+    p = Path(path.rpartition("#")[0] or path) if "#" in path else Path(path)
     if p.is_absolute() or ".." in p.parts:
         return False
     rel = p.as_posix().rstrip("/")
     return rel not in (INDEX, ".mnemolith", FOLDER) and not rel.startswith(FOLDER + "/")
 
 
-def confirm(root: Path, name: str) -> Memory:
-    """Says a memory is still true: records the current fingerprint of each file it depends on, in its file."""
+def _need(root: Path, name: str) -> Memory:
     mem = find(root, name)
     if mem is None:
         raise TeamError(f"There's no team memory called {name.removeprefix(PREFIX)} in {FOLDER}/memories/.")
     if not mem.readable:
         raise TeamError(f"{mem.name} was written by a newer Mnemolith. Update Mnemolith to change it.")
-    gone = [path for path, _ in mem.files if _now(root, path) == "missing"]
+    if conflicted(mem):
+        raise TeamError(f"{mem.name} is in conflict: two people changed it. Settle that first with "
+                        f"`mnemolith team keep {mem.name} mine` (or `theirs`), or by editing the file.")
+    if mem.problem:
+        raise TeamError(f"{mem.name} can't be read: {mem.problem}. Fix {mem.path.relative_to(root).as_posix()} first.")
+    return mem
+
+
+def _stamp(root: Path, by: str = "") -> str:
+    from datetime import date
+    who = " ".join((by or author(root)).split())
+    return date.today().isoformat() + (f" by {who}" if who else "")
+
+
+def _relink(root: Path, mem: Memory) -> None:
+    """Records each linked file as it is now, following files that moved. Raises if one is simply gone."""
+    links = []
+    for link, _saved in mem.files:
+        if not linkable(link):
+            continue
+        if _now(root, link) == "missing":
+            link = moved_to(root, link, _saved) or link
+        links.append(link)
+    gone = [describe(link, root) for link in links if _now(root, link) == "missing"]
     if gone:
-        raise TeamError(f"{mem.name} depends on {', '.join(gone)}, which no longer exists. Edit "
-                        f"{mem.path.relative_to(root).as_posix()} to fix or retire it.")
-    mem.files = [(path, _now(root, path)) for path, _ in mem.files if linkable(path)]
+        raise TeamError(f"{mem.name} depends on {', '.join(gone)}, which no longer exists. Take that line out of "
+                        f"`files:` in {mem.path.relative_to(root).as_posix()} (or point it at the right file), "
+                        f"then confirm again; or retire the memory.")
+    mem.files = [(link, _now(root, link)) for link in dict.fromkeys(links)]
+
+
+def confirm(root: Path, name: str, by: str = "") -> Memory:
+    """Says a memory is still true: records the current fingerprint of each file it depends on, and who
+    confirmed it and when, in its file. A linked file that was renamed or moved is followed to its new place."""
+    mem = _need(root, name)
+    _relink(root, mem)
     mem.meta.setdefault("mnemolith", str(FORMAT))
+    mem.meta["confirmed"] = _stamp(root, by)
     _write(mem)
+    return mem
+
+
+def edit(root: Path, name: str, text: str, allow_soft: bool = False, by: str = "") -> Memory:
+    """Changes what a team memory says. The new wording goes through the secret check, and the files it depends
+    on are recorded as they are now, since whoever rewrote it just looked."""
+    mem = _need(root, name)
+    text = text.strip()
+    if not text:
+        raise TeamError("The new wording is empty. To stop using a memory, retire it instead.")
+    findings = scan_secrets(text)
+    if findings and (not allow_soft or any(f["hard"] for f in findings)):
+        raise SecretFound(findings)
+    mem.text = text
+    _relink(root, mem)
+    mem.meta.setdefault("mnemolith", str(FORMAT))
+    mem.meta["edited"] = _stamp(root, by)
+    mem.meta.pop("confirmed", None)
+    _write(mem)
+    write_index(root)
     return mem
 
 
@@ -364,6 +549,7 @@ def init(root: Path) -> dict:
         write_index(root)
         ensure_merge_rule(root)
     _set_joined(root, True)
+    mark_seen(root)
     return {"created": created, "count": len(current(root)), "ignored": _ignored(root)}
 
 
@@ -630,6 +816,8 @@ def add(root: Path, text: str, files: Optional[List[str]] = None, allow_soft: bo
         now = _now(root, path)
         if now != "missing":
             linked.append((path, now))
+    parts = {split_link(root, link)[0] for link, _ in linked if split_link(root, link)[1]}
+    linked = [(link, fp) for link, fp in linked if link not in parts]  # a part of a file replaces the whole file
     if max_files is not None:
         linked = linked[:max_files]  # the files passed come first, then ones the text names
     findings = scan_secrets("\n".join([text] + [path for path, _ in linked]))
@@ -644,9 +832,20 @@ def add(root: Path, text: str, files: Optional[List[str]] = None, allow_soft: bo
     meta["created"] = date.today().isoformat()
     mem = Memory(name, folder(root) / "memories" / f"{name}.md", text, meta, linked)
     _write(mem)
+    _saw(root, name)
     if index:
         write_index(root)
     return mem
+
+
+def similar(root: Path, text: str, at: float = 0.85) -> Optional[Memory]:
+    """The team memory that already says this, if there is one."""
+    mems = current(root)
+    if not mems or not text.strip():
+        return None
+    vecs = _embeddings([" ".join(text.split())[:MAX_TEXT]] + [m.one_line for m in mems])
+    score, best = max(((_cosine(vecs[0], v), i) for i, v in enumerate(vecs[1:])), default=(0.0, 0))
+    return mems[best] if score >= at else None
 
 
 def promote(root: Path, project: str, memory_id: str, allow_soft: bool = False) -> Memory:
@@ -661,19 +860,37 @@ def promote(root: Path, project: str, memory_id: str, allow_soft: bool = False) 
     if d["status"] != "active":
         raise TeamError(f"{memory_id} isn't current (it's {'replaced' if d['status'] == 'superseded' else 'outdated'}), "
                         f"so it can't be shared. Confirm or fix it first.")
+    same = similar(root, d["text"])
+    if same:
+        raise TeamError(f"Not shared: the team already has this as {same.name}: \"{same.one_line[:200]}\" "
+                        f"If yours says something more, edit that one: `mnemolith team edit {same.name} \"...\"`.")
     paths = [f.rsplit("@", 1)[0] for f in d["files"].split(",") if f]
     mem = add(root, d["text"], paths, allow_soft)
     server.run("MEM.STATUS", memory_id, "superseded", "REASON", f"{MOVED} {mem.id}")
     return mem
 
 
-def retire(root: Path, name: str) -> Memory:
-    mem = find(root, name)
-    if mem is None:
-        raise TeamError(f"There's no team memory called {name.removeprefix(PREFIX)} in {FOLDER}/memories/.")
-    if not mem.readable:
-        raise TeamError(f"{mem.name} was written by a newer Mnemolith. Update Mnemolith to change it.")
+def unshare(root: Path, project: str, name: str) -> Tuple[Memory, str]:
+    """Takes a memory back out of the team's: it becomes one of this person's own again, and the team's copy is
+    retired (its file stays, so the history does). Returns (the retired team memory, the new personal id)."""
+    mem = _need(root, name)
+    if mem.status != "active":
+        raise TeamError(f"{mem.name} is already {mem.status}.")
+    paths = [split_link(root, link)[0] for link, _ in mem.files]
+    paths = [p for p in dict.fromkeys(paths) if (root / p).is_file()]
+    new_id, _outcome, _related = server.add_memory(project, mem.text.strip(), server.link_files(paths, root) if paths else "",
+                                                   vector=server.embed(mem.text.strip()))
     mem.meta["status"] = "retired"
+    mem.meta["retired"] = _stamp(root) + ", moved back to a personal memory"
+    _write(mem)
+    write_index(root)
+    return mem, new_id
+
+
+def retire(root: Path, name: str, by: str = "") -> Memory:
+    mem = _need(root, name)
+    mem.meta["status"] = "retired"
+    mem.meta["retired"] = _stamp(root, by)
     _write(mem)
     write_index(root)
     return mem
@@ -688,17 +905,47 @@ def conflicted(mem: Memory) -> bool:
     return bool(re.search(r"^<{7} ", raw, re.M) and re.search(r"^>{7} ", raw, re.M))
 
 
+_CONFLICT = re.compile(r"^<{7} [^\n]*\n(.*?)(?:^\|{7} [^\n]*\n.*?)?^={7}\n(.*?)^>{7} [^\n]*\n?", re.M | re.S)
+
+
+def _resolved(raw: str, which: str) -> str:
+    """A conflicted file with every conflict settled one way: "mine" (what was here) or "theirs" (what came in)."""
+    return _CONFLICT.sub(lambda m: m.group(1 if which == "mine" else 2), raw.replace("\r\n", "\n"))
+
+
 def sides(mem: Memory) -> Optional[Tuple[str, str]]:
-    """The two wordings of a memory that git couldn't merge: (the one here, the one that came in). None if the
-    file isn't in conflict, or the conflict is somewhere other than the fact itself."""
+    """The two wordings of a memory that git couldn't merge: (the one here, the one that came in). Works whether
+    the two people changed one sentence or each wrote the whole file. None if the file isn't in conflict, or
+    the wording is the same on both sides and only the header differs."""
     try:
-        raw = mem.path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
+        raw = mem.path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
-    m = re.search(r"^<{7} [^\n]*\n(.*?)\n(?:\|{7} [^\n]*\n.*?\n)?={7}\n(.*?)\n>{7} ", raw, re.M | re.S)
-    if not m or raw.find("\n---", 3) > m.start():  # the conflict is in the header, not the fact
+    if not _CONFLICT.search(raw.replace("\r\n", "\n")):
         return None
-    return " ".join(m.group(1).split())[:MAX_TEXT], " ".join(m.group(2).split())[:MAX_TEXT]
+    mine = " ".join(parse(_resolved(raw, "mine"))[2].split())[:MAX_TEXT]
+    theirs = " ".join(parse(_resolved(raw, "theirs"))[2].split())[:MAX_TEXT]
+    return (mine, theirs) if mine != theirs and (mine or theirs) else None
+
+
+def keep(root: Path, name: str, which: str) -> Memory:
+    """Settles a conflicted memory by keeping one side whole: "mine" or "theirs". The file is rewritten without
+    git's markers; the user still has to `git add` it and commit, as with any conflict."""
+    if which not in ("mine", "theirs"):
+        raise TeamError("Say which version to keep: mine or theirs.")
+    mem = find(root, name)
+    if mem is None:
+        raise TeamError(f"There's no team memory called {name.removeprefix(PREFIX)} in {FOLDER}/memories/.")
+    if not conflicted(mem):
+        raise TeamError(f"{mem.name} isn't in conflict, so there's nothing to choose between.")
+    raw = mem.path.read_bytes().decode("utf-8", errors="replace")
+    settled = _resolved(raw, which)
+    if not parse(settled)[2].strip():
+        raise TeamError(f"That side of {mem.name} is empty. Keep the other one, or edit the file by hand.")
+    with open(mem.path, "w", encoding="utf-8", newline="\r\n" if "\r\n" in raw else "\n") as f:
+        f.write(settled)
+    write_index(root)
+    return find(root, name)
 
 
 def index_text(root: Path) -> str:
@@ -799,6 +1046,55 @@ def _set_listed(key: str, root: Path, on: bool) -> None:
     _save_settings(settings)
 
 
+def unseen(root: Path) -> List[str]:
+    """Names of team memories that arrived (from a pull, or a teammate's share) since this person last looked."""
+    seen = _settings().get("team_seen")
+    known = seen.get(_key(root)) if isinstance(seen, dict) else None
+    if not isinstance(known, list):
+        return []  # never looked: nothing to compare with, so nothing is called new
+    return [m.name for m in current(root) if m.name not in known]
+
+
+def _saw(root: Path, name: str) -> None:
+    """A memory this person just wrote isn't news to them."""
+    settings = _settings()
+    seen = settings.get("team_seen") if isinstance(settings.get("team_seen"), dict) else {}
+    known = seen.get(_key(root))
+    if isinstance(known, list) and name not in known:
+        seen[_key(root)] = sorted(known + [name])
+        settings["team_seen"] = seen
+        _save_settings(settings)
+
+
+def twins(root: Path, at: float = 0.80) -> List[Tuple[Memory, Memory, float]]:
+    """Pairs of team memories that say nearly the same thing, or contradict each other: it takes a person to
+    tell which. Happens when two people share the same fact on different branches."""
+    mems = current(root)
+    if len(mems) < 2 or len(mems) > 400:
+        return []
+    vecs = _embeddings([m.one_line for m in mems])
+    try:
+        import numpy as np
+        a = np.array(vecs, dtype="float32")
+        a /= np.maximum(np.linalg.norm(a, axis=1, keepdims=True), 1e-9)
+        sim = a @ a.T
+        pairs = [(i, j, float(sim[i, j])) for i in range(len(mems)) for j in range(i + 1, len(mems)) if sim[i, j] >= at]
+    except ImportError:
+        pairs = [(i, j, c) for i in range(len(mems)) for j in range(i + 1, len(mems))
+                 if (c := _cosine(vecs[i], vecs[j])) >= at]
+    return [(mems[i], mems[j], score) for i, j, score in sorted(pairs, key=lambda p: -p[2])]
+
+
+def mark_seen(root: Path) -> None:
+    settings = _settings()
+    seen = settings.get("team_seen") if isinstance(settings.get("team_seen"), dict) else {}
+    names = sorted(m.name for m in load(root))
+    if seen.get(_key(root)) != names:
+        seen[_key(root)] = names
+        settings["team_seen"] = seen
+        _save_settings(settings)
+
+
 def ai_allowed(root: Path) -> bool:
     """Whether this person said their AI tools may share memories with this repo's team when asked to."""
     return _listed("team_ai", root)
@@ -864,9 +1160,12 @@ Rules:
 - Leave out what changes nothing about how someone works on the code: benchmark numbers, feature lists,
   limitations that are simply documented, history that no longer matters.
 - One fact per memory, written so it makes sense on its own months from now.
-- files= is how everyone learns the memory may be out of date, so link only the files where the fact is set or
-  enforced: one or two, three at most. Link the code or config that holds the fact, not docs that describe it;
+- files= is how everyone learns the memory may be out of date, so link only where the fact is set or enforced:
+  one or two places, three at most. Link the code or config that holds the fact, not docs that describe it;
   link README.md only when the fact lives nowhere else.
+- When the fact is about one function, class, setting or section of a bigger file, link that part, not the
+  whole file: "mnemolith/server.py#recall", "pyproject.toml#artifacts", "README.md#Releasing". Then the memory
+  is only flagged when that part changes.
 - Only what the repo actually says or shows. Do not guess, and do not invent reasons.
 - Nothing temporary, nothing about a single bug, and never a password, key or token.
 - Do not edit, create or commit any file yourself.
@@ -926,3 +1225,109 @@ def add_pointer(root: Path) -> List[Path]:
             f.write(gap + POINTER_MARK + newline + POINTER + newline)
         done.append(path)
     return done
+
+
+# ---------- checking a pull request ----------
+#
+# Run in CI (see `mnemolith team action`): which team memories depend on something this branch changed, without
+# the memory itself being confirmed, edited or retired in the same branch. Needs only git: no engine, no model.
+
+def _git(root: Path, *args: str) -> Optional[str]:
+    try:
+        out = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout if out.returncode == 0 else None
+
+
+def pr_check(root: Path, base: str) -> List[dict]:
+    """[{name, text, path, why}] for each team memory this branch may have made out of date."""
+    start = (_git(root, "merge-base", base, "HEAD") or "").strip()
+    if not start:
+        raise TeamError(f"Couldn't compare with {base}. In CI, check out with full history (fetch-depth: 0).")
+    # what the branch changed, uncommitted edits included: in CI they're the same, and locally that's what you want
+    touched = {f for f in (_git(root, "diff", "--name-only", start) or "").splitlines() if f}
+    touched |= {f for f in (_git(root, "ls-files", "--others", "--exclude-standard") or "").splitlines() if f}
+    found = []
+    for mem in current(root):
+        own = mem.path.relative_to(root).as_posix()
+        if own in touched:
+            continue  # someone looked at it in this branch: confirmed, reworded or new
+        why = []
+        for link, _saved in mem.files:
+            path, name = split_link(root, link)
+            if name:
+                if path not in touched:
+                    continue
+                before = _git(root, "show", f"{start}:{path}")
+                after = (root / path).read_bytes().decode("utf-8", errors="replace") if (root / path).is_file() else None
+                was = _section_print(before, name) if before is not None else "missing"
+                now = _section_print(after, name) if after is not None else "missing"
+                if was != now:
+                    why.append(f"`{name}` in `{path}` {'changed' if now != 'missing' else 'is gone'}")
+            elif path in touched:
+                why.append(f"`{path}` {'changed' if (root / path).exists() else 'was deleted or moved'}")
+            elif any(f.startswith(path.rstrip("/") + "/") for f in touched):
+                why.append(f"files in `{path}/` changed")
+        if why:
+            found.append({"name": mem.name, "text": mem.one_line, "path": own, "why": why})
+    return found
+
+
+def pr_comment(found: List[dict]) -> str:
+    """The pull request comment for pr_check's findings, as Markdown. Empty if there's nothing to say."""
+    if not found:
+        return ""
+    n = len(found)
+    lines = [f"### {n} team {'memory' if n == 1 else 'memories'} may be out of date after this pull request", "",
+             "Your team's AI tools rely on these. Each depends on something this pull request changes, and "
+             "wasn't updated with it:", ""]
+    for f in found:
+        lines += [f"- **{f['text']}**", f"  {'; '.join(f['why'])}. Memory: `{f['path']}`"]
+    lines += ["", "If one is still true, run `mnemolith team confirm <name>` and commit the change. If it isn't, "
+              "`mnemolith team edit <name> \"...\"` or `mnemolith team retire <name>`.", "",
+              "<sub>Checked by [Mnemolith](https://mnemolith.dev/team.html) team memory.</sub>"]
+    return "\n".join(lines) + "\n"
+
+
+WORKFLOW = ".github/workflows/mnemolith-team.yml"
+WORKFLOW_TEXT = """# Comments on a pull request when it changes something a team memory depends on, so out-of-date
+# knowledge is caught in review. Written by `mnemolith team action`; yours to edit.
+name: Team memory check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - name: Check team memories against this pull request
+        run: uvx mnemolith team check --base "origin/${{ github.base_ref }}" --markdown > team-memory.md
+      - name: Comment on the pull request
+        if: ${{ hashFiles('team-memory.md') != '' }}
+        continue-on-error: true  # pull requests from forks can't comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -s team-memory.md ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file team-memory.md
+          fi
+"""
+
+
+def write_workflow(root: Path) -> bool:
+    path = root / WORKFLOW
+    if path.exists():
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(WORKFLOW_TEXT, encoding="utf-8")
+    return True

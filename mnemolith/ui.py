@@ -401,12 +401,25 @@ def api_team(q, _body) -> dict:
         except Exception:
             close = {}
         texts = dict(own)
+    new = set(team.unseen(repo)) if out["joined"] else set()
+    try:
+        twin = {}
+        for a, b, _score in team.twins(repo):
+            twin.setdefault(a.name, b.name)
+            twin.setdefault(b.name, a.name)
+    except Exception:
+        twin = {}
     for m in mems:
-        what = team.changed(m, repo) if m.readable else []
+        what = team.changed(m, repo) if m.readable and not m.problem else []
         item = {"id": m.id, "name": m.name, "text": m.one_line, "status": m.status, "author": m.meta.get("author", ""),
                 "created": m.meta.get("created", ""), "path": m.path.relative_to(repo).as_posix(),
                 "files": [{"path": p, "hash": fp} for p, fp in m.files], "changed": what,
-                "conflicted": team.conflicted(m), "unreadable": not m.readable}
+                "moved": bool(what) and all(" moved to " in w for w in what),
+                "conflicted": team.conflicted(m), "unreadable": not m.readable, "problem": m.problem,
+                "confirmed": m.meta.get("confirmed", ""), "edited": m.meta.get("edited", ""),
+                "new": m.name in new, "twin": twin.get(m.name, "")}
+        if m.problem:
+            item["text"] = "This memory's file can't be read"
         if item["conflicted"]:
             both = team.sides(m)
             item["sides"] = list(both) if both else None
@@ -416,6 +429,9 @@ def api_team(q, _body) -> dict:
             item["close"] = {"id": own_id, "text": texts[own_id], "score": round(score, 2)}
         out["memories"].append(item)
     out["count"] = len(live)
+    out["new"] = len(new)
+    if out["joined"]:
+        team.mark_seen(repo)
     out["index_outdated"] = team.index_outdated(repo)
     out["ignored"] = team._ignored(repo)
     return out
@@ -477,6 +493,31 @@ def api_team_confirm(_q, body) -> dict:
 
 def api_team_retire(_q, body) -> dict:
     return _team_change(body, team.retire, "Retired {name}. Commit {path} so it's retired for your team too.")
+
+
+def api_team_edit(_q, body) -> dict:
+    """Rewords a team memory. Like sharing, a maybe-secret comes back as needs_confirm for a person to decide."""
+    repo = _team_repo(body)
+    try:
+        mem = team.edit(repo, _need(body, "name"), _need(body, "text"), allow_soft=body.get("allow_soft") is True)
+    except team.SecretFound as e:
+        if e.overridable:
+            return {"needs_confirm": True, "findings": [f"{f['what']} ({f['shown']})" for f in e.findings]}
+        raise ApiError(409, str(e).replace("Not shared", "Not changed"))
+    except team.TeamError as e:
+        raise _team_error(e)
+    path = mem.path.relative_to(repo).as_posix()
+    return {"ok": True, "message": f"Changed {mem.name}. Commit {path} and {team.INDEX} so your team gets the new wording."}
+
+
+def api_team_keep(_q, body) -> dict:
+    repo = _team_repo(body)
+    try:
+        mem = team.keep(repo, _need(body, "name"), _need(body, "which"))
+    except team.TeamError as e:
+        raise _team_error(e)
+    path = mem.path.relative_to(repo).as_posix()
+    return {"ok": True, "message": f"Kept that version of {mem.name}. Now `git add {path}` and commit, to finish the merge."}
 
 
 def api_team_sync(_q, body) -> dict:
@@ -661,6 +702,8 @@ ROUTES = {
     ("POST", "/api/team/share"): api_team_share,
     ("POST", "/api/team/confirm"): api_team_confirm,
     ("POST", "/api/team/retire"): api_team_retire,
+    ("POST", "/api/team/edit"): api_team_edit,
+    ("POST", "/api/team/keep"): api_team_keep,
     ("POST", "/api/team/sync"): api_team_sync,
     ("POST", "/api/team/ai"): api_team_ai,
     ("GET", "/api/settings"): api_settings,

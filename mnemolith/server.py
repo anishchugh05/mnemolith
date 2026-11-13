@@ -614,9 +614,10 @@ def mark_outdated(memory_id: str, reason: str) -> str:
     history. If you know what's true now, save that with remember(..., replaces=<this id>) instead, so
     the next session knows the new fact, not just that the old one is wrong."""
     if _team_id(memory_id):
+        name = memory_id.strip().removeprefix("team:")
         return (f"{memory_id} is a team memory, shared with everyone on this repo, so it isn't retired from here. "
-                f"Tell the user what looks wrong; to fix or retire it, edit its file in .mnemolith/team/memories/ "
-                f"(set `status: retired` to retire it), which the user reviews and commits.")
+                f"Tell the user what looks wrong. They can reword it with `mnemolith team edit {name} \"...\"` or "
+                f"retire it with `mnemolith team retire {name}`, then review and commit the change.")
     try:
         reply = run("MEM.STATUS", memory_id, "stale", "REASON", reason)
     except EngineDown as e:
@@ -824,8 +825,10 @@ def share_with_team(memory_id: str = "", fact: str = "", files: Optional[List[st
     Before calling, tell the user: it will be visible to everyone with access to this repo.
 
     memory_id: one of the user's own memories to share (e.g. "m42"); it moves to the team.
-    fact: or a new fact to share directly. Always pass files= with the files or folders it depends on: that's how
-    everyone's AI tools learn when it may have gone out of date. For starter memories, read the repo and
+    fact: or a new fact to share directly. Always pass files= with what it depends on: that's how everyone's AI
+    tools learn when it may have gone out of date. Prefer one part of a file over the whole file when the fact
+    is about a function, class, setting or section: "shop/api/v1.py#product", "README.md#Releasing". A whole
+    file or a folder works too. For starter memories, read the repo and
     share at most 30 of the most useful facts, one call each.
     What belongs: decisions and their reasons, conventions, who owns what, setup gotchas, promises to partners.
     Not personal preferences, and never passwords, keys or tokens (those are refused)."""
@@ -847,9 +850,10 @@ def share_with_team(memory_id: str = "", fact: str = "", files: Optional[List[st
         if memory_id.strip():
             mem = team.promote(root, project_name(), memory_id.strip())
         elif fact.strip():
-            same = _team_hits(embed(fact), 1, 0.85)
+            same = team.similar(root, fact)
             if same:
-                return "Not shared: the team memory already has this:\n" + same[0]
+                return (f"Not shared: the team memory already has this: [{same.id}] {same.one_line} If yours adds "
+                        f"something, tell the user; they can reword it with `mnemolith team edit {same.name}`.")
             # starter memories link a few files at most, or they flag on every unrelated edit
             mem = team.add(root, fact, files, max_files=team.STARTER_MAX_FILES if starter is not None else None)
         else:

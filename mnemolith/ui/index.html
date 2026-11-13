@@ -385,6 +385,7 @@ ol.timeline .details { font-size: var(--t-sm); color: var(--ink-2); margin: 1px 
 .share-form { width: 100%; margin-top: var(--s2); padding: 12px 14px; border-radius: 6px; background: var(--surface-2); font-size: var(--t-sm); corner-shape: squircle; }
 .share-form p { margin: 0 0 10px; }
 .share-form .findings { color: var(--stale); }
+.team-edit textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); resize: vertical; }
 .share-form label { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; color: var(--ink-2); }
 @media (max-width: 640px) { .team-row { grid-template-columns: 9px minmax(0, 1fr); } .team-row .side { grid-column: 2; } .team-start { grid-template-columns: 1fr; } }
 .mender-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 18px; }
@@ -1350,6 +1351,36 @@ async function teamAct(button, path, body) {
   } catch (e) { notify(e.message); button.disabled = false; }
 }
 
+// Rewording a team memory in place. The new wording goes through the same secret check as sharing.
+function teamEdit(m, body, project) {
+  if (body.querySelector(".team-edit")) return;
+  const box = h("textarea", { rows: "3", "aria-label": `New wording for ${m.name}` });
+  box.value = m.text;
+  const note = h("p", { class: "findings", hidden: true });
+  let allowSoft = false;
+  const save = h("button", { class: "btn primary", type: "button", onclick: async () => {
+    if (!box.value.trim()) { notify("The wording is empty. To stop using a memory, retire it."); return; }
+    save.disabled = true;
+    try {
+      const r = await api("/api/team/edit", { project, name: m.name, text: box.value, allow_soft: allowSoft });
+      if (r.needs_confirm) {
+        allowSoft = true; note.hidden = false;
+        note.textContent = `Check this first: it looks like it contains ${r.findings.join("; ")}. Only save it if you’re sure none of that is a secret.`;
+        save.textContent = "It’s not a secret, save it"; save.disabled = false;
+        return;
+      }
+      notify(r.message);
+      await refreshAll();
+    } catch (e) { notify(e.message); save.disabled = false; }
+  } }, "Save");
+  const cancel = h("button", { class: "btn", type: "button", onclick: () => form.remove() }, "Cancel");
+  const form = h("div", { class: "share-form team-edit", role: "group", "aria-label": `Reword ${m.name}` },
+    h("p", {}, "Everyone on this repo gets the new wording once you commit it."), box, note,
+    h("div", { class: "actions", style: "margin-top:10px" }, save, cancel));
+  body.append(form);
+  box.focus();
+}
+
 function renderTeam() {
   const sec = document.getElementById("team");
   if (!sec) return;
@@ -1358,7 +1389,7 @@ function renderTeam() {
   sec.hidden = false;
   const project = state.project;
   const live = t.memories.filter((m) => m.status === "active" && !m.unreadable && !m.conflicted);
-  const flagged = live.filter((m) => m.changed.length).length + t.memories.filter((m) => m.conflicted).length;
+  const flagged = live.filter((m) => m.changed.length).length + t.memories.filter((m) => m.conflicted || m.problem).length;
   const head = h("h2", { class: "section", id: "team-h" }, "Team memory",
     flagged ? h("span", { class: "count", "aria-label": plural(flagged, "memory needs", "memories need") + " a look" }, flagged) : null);
 
@@ -1376,35 +1407,57 @@ function renderTeam() {
   }
 
   const rows = t.memories.map((m) => {
-    const kind = m.conflicted ? "conflict" : m.status !== "active" || m.unreadable ? "retired" : m.changed.length ? "stale" : "active";
+    const broken = m.unreadable || m.problem;
+    const kind = m.conflicted ? "conflict" : broken ? "stale" : m.status !== "active" ? "retired" : m.changed.length ? "stale" : "active";
     const actions = h("div", { class: "actions" });
-    if (kind === "stale") {
-      const ok = h("button", { class: "btn primary", type: "button", onclick: () => teamAct(ok, "/api/team/confirm", { project, name: m.name }) }, "Still true");
-      const retire = h("button", { class: "btn", type: "button", onclick: () => teamAct(retire, "/api/team/retire", { project, name: m.name }) }, "Retire");
-      actions.append(ok, retire);
+    const body = h("div", {});
+    if (m.conflicted) {
+      const mine = h("button", { class: "btn primary", type: "button", onclick: () => teamAct(mine, "/api/team/keep", { project, name: m.name, which: "mine" }) }, m.sides ? "Keep yours" : "Settle it");
+      actions.append(mine);
+      if (m.sides) {
+        const theirs = h("button", { class: "btn", type: "button", onclick: () => teamAct(theirs, "/api/team/keep", { project, name: m.name, which: "theirs" }) }, "Keep theirs");
+        actions.append(theirs);
+      }
+    } else if (kind === "stale" && !broken) {
+      const ok = h("button", { class: "btn primary", type: "button", onclick: () => teamAct(ok, "/api/team/confirm", { project, name: m.name }) }, m.moved ? "Follow the move" : "Still true");
+      actions.append(ok);
+      if (!m.moved) {
+        const retire = h("button", { class: "btn", type: "button", onclick: () => teamAct(retire, "/api/team/retire", { project, name: m.name }) }, "Retire");
+        actions.append(h("button", { class: "btn", type: "button", onclick: () => teamEdit(m, body, project) }, "Reword…"), retire);
+      }
     }
-    if (m.close && kind !== "retired") {
+    if (m.close && kind !== "retired" && !m.conflicted) {
       const mine = h("button", { class: "btn", type: "button",
         onclick: () => act(mine, "/api/retire", { id: m.close.id, reason: `the team memory ${m.id} covers this` }, `${m.close.id} retired: the team memory covers it.`) },
         `Retire mine (${m.close.id})`);
       actions.append(mine);
     }
-    return h("div", { class: `team-row ${kind}` }, pip(kind),
-      h("div", {},
-        h("p", { class: "text" }, richText(m.text)),
-        h("p", { class: "by" }, h("span", { class: "mono", title: m.path }, m.name),
-          m.author ? h("span", {}, `by ${m.author}`, m.created ? `, ${m.created}` : "") : null,
-          m.files.length ? h("span", { class: "mono" }, m.files.map((f) => f.path).join(", ")) : null),
-        m.conflicted && m.sides ? h("div", { class: "pair", style: "margin-top:8px" },
-          h("div", {}, h("span", { class: "label" }, "Yours"), h("p", {}, richText(m.sides[0]))),
-          h("div", {}, h("span", { class: "label" }, "Theirs"), h("p", {}, richText(m.sides[1])))) : null,
-        m.conflicted ? h("p", { class: "flag" }, "Two people changed this memory and git couldn’t merge them. Open ", h("span", { class: "mono" }, pathNodes(m.path)), ", keep the right wording, and remove the conflict markers. Your AI tools don’t see it until then.") : null,
-        m.unreadable ? h("p", { class: "flag" }, "Written by a newer Mnemolith. Update Mnemolith to read it.") : null,
-        kind === "stale" ? h("p", { class: "flag" }, `Possibly outdated for everyone: ${m.changed.join(", ")} since this was confirmed.`) : null,
-        m.close && kind !== "retired" ? h("p", { class: "close" }, "Close to your own ", h("span", { class: "mono" }, m.close.id), `: “${m.close.text}”. If they say the same thing, retire yours; if they disagree, talk to your team.`) : null,
-        actions.childNodes.length ? actions : null),
-      h("span", { class: "side" }, kind === "retired" ? h("span", { class: "word retired" }, m.unreadable ? "unreadable" : m.status)
-        : kind === "active" ? h("button", { class: "linkish", type: "button", onclick: (e) => teamAct(e.currentTarget, "/api/team/retire", { project, name: m.name }) }, "Retire") : null));
+    const stamp = m.edited ? `reworded ${m.edited}` : m.confirmed ? `confirmed ${m.confirmed}` : "";
+    body.append(
+      h("p", { class: "text" }, m.new ? h("span", { class: "fixed-tag", style: "margin-right:8px" }, "New") : null, richText(m.text)),
+      h("p", { class: "by" }, h("span", { class: "mono", title: m.path }, m.name),
+        m.author ? h("span", {}, `by ${m.author}`, m.created ? `, ${m.created}` : "") : null,
+        stamp ? h("span", {}, stamp) : null,
+        m.files.length ? h("span", { class: "mono" }, m.files.map((f) => f.path).join(", ")) : null));
+    if (m.conflicted && m.sides) body.append(h("div", { class: "pair", style: "margin-top:8px" },
+      h("div", {}, h("span", { class: "label" }, "Yours"), h("p", {}, richText(m.sides[0]))),
+      h("div", {}, h("span", { class: "label" }, "Theirs"), h("p", {}, richText(m.sides[1])))));
+    if (m.conflicted) body.append(h("p", { class: "flag" }, m.sides
+      ? "Two people changed this memory and git couldn’t merge them. Keep one version, or edit "
+      : "Two people changed this memory and git couldn’t merge them, but the wording is the same on both sides. Settle it, or edit ",
+      h("span", { class: "mono" }, pathNodes(m.path)), m.sides ? " to combine them. " : ". ", "Then commit to finish the merge. Your AI tools don’t see it until then."));
+    if (m.unreadable) body.append(h("p", { class: "flag" }, "Written by a newer Mnemolith. Update Mnemolith to read it."));
+    else if (m.problem) body.append(h("p", { class: "flag" }, `Can’t be read: ${m.problem}. Fix `, h("span", { class: "mono" }, pathNodes(m.path)), ". Your AI tools don’t see it until then."));
+    if (kind === "stale" && !broken) body.append(h("p", { class: "flag" }, m.moved ? `${m.changed.join(", ")}.` : `Possibly outdated for everyone: ${m.changed.join(", ").replaceAll("`", "")} since this was confirmed.`));
+    if (m.twin && kind !== "retired" && !m.conflicted) body.append(h("p", { class: "close" }, "Says nearly the same as, or disagrees with, ", h("span", { class: "mono" }, m.twin), ". Keep one: reword or retire the other."));
+    if (m.close && kind !== "retired" && !m.conflicted) body.append(h("p", { class: "close" }, "Close to your own ", h("span", { class: "mono" }, m.close.id), `: “${m.close.text}”. If they say the same thing, retire yours; if they disagree, talk to your team.`));
+    if (actions.childNodes.length) body.append(actions);
+    const side = kind === "retired" ? h("span", { class: "word retired" }, m.status)
+      : kind === "active" ? h("span", { style: "display:flex;gap:14px" },
+          h("button", { class: "linkish", type: "button", onclick: () => teamEdit(m, body, project) }, "Reword"),
+          h("button", { class: "linkish", type: "button", onclick: (e) => teamAct(e.currentTarget, "/api/team/retire", { project, name: m.name }) }, "Retire"))
+      : null;
+    return h("div", { class: `team-row ${kind}` }, pip(kind), body, h("span", { class: "side" }, side));
   });
 
   const ai = h("button", { class: "linkish", type: "button", onclick: () => teamAct(ai, "/api/team/ai", { project, on: !t.ai }) },
