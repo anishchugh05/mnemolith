@@ -403,6 +403,11 @@ def api_team(q, _body) -> dict:
         texts = dict(own)
     new = set(team.unseen(repo)) if out["joined"] else set()
     try:
+        team_drafts = mender.refresh_team(project, repo) if out["joined"] else {}
+    except Exception:
+        team_drafts = {}  # drafts need the engine; the team list doesn't
+    out["mender"] = mender.enabled()
+    try:
         twin = {}
         for a, b, _score in team.twins(repo):
             twin.setdefault(a.name, b.name)
@@ -420,6 +425,11 @@ def api_team(q, _body) -> dict:
                 "new": m.name in new, "twin": twin.get(m.name, "")}
         if m.problem:
             item["text"] = "This memory's file can't be read"
+        d = team_drafts.get(m.id)
+        if d and not d.get("dismissed") and what:
+            item["draft"] = {"kind": d["kind"], "text": d["text"], "reason": d.get("reason", ""),
+                             "by": mender.by_label(d.get("by", "")), "warnings": d.get("warnings", []),
+                             "drifted": mender.drifted(d, repo)}
         if item["conflicted"]:
             both = team.sides(m)
             item["sides"] = list(both) if both else None
@@ -518,6 +528,22 @@ def api_team_keep(_q, body) -> dict:
         raise _team_error(e)
     path = mem.path.relative_to(repo).as_posix()
     return {"ok": True, "message": f"Kept that version of {mem.name}. Now `git add {path}` and commit, to finish the merge."}
+
+
+def api_team_fix(_q, body) -> dict:
+    """Approves (optionally edited) or dismisses Mender's draft for a flagged team memory."""
+    repo = _team_repo(body)
+    project = _need(body, "project")
+    memory_id = "team:" + _need(body, "name")
+    text = body.get("text")
+    if text is not None and not isinstance(text, str):
+        raise ApiError(400, "text must be a string.")
+    try:
+        if body.get("dismiss") is True:
+            return mender.dismiss_team(project, memory_id, repo)
+        return mender.approve_team(project, memory_id, repo, text)
+    except mender.Refused as e:
+        raise ApiError(e.status, str(e))
 
 
 def api_team_sync(_q, body) -> dict:
@@ -704,6 +730,7 @@ ROUTES = {
     ("POST", "/api/team/retire"): api_team_retire,
     ("POST", "/api/team/edit"): api_team_edit,
     ("POST", "/api/team/keep"): api_team_keep,
+    ("POST", "/api/team/fix"): api_team_fix,
     ("POST", "/api/team/sync"): api_team_sync,
     ("POST", "/api/team/ai"): api_team_ai,
     ("GET", "/api/settings"): api_settings,

@@ -841,6 +841,9 @@ def propose_fix(memory_id: str, new_text: str = "", reason: str = "", still_true
     files: repo-relative files the new fact depends on, if different from the old memory's (e.g. after a move)."""
     try:
         from . import mender
+        if _team_id(memory_id):
+            return mender.propose_team(project_name(), memory_id.strip(), new_text, reason, still_true, config.SOURCE,
+                                       repo_root())
         return mender.propose(memory_id, new_text, reason, still_true, config.SOURCE, files, git_toplevel())
     except EngineDown as e:
         return store_down(e)

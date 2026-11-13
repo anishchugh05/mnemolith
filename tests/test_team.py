@@ -728,3 +728,94 @@ def test_a_tool_that_doesnt_start_isnt_offered(monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", str(tmp_path))
     assert [t[0] for t in team.starter_tools()] == ["claude"] and team.BROKEN == []  # Codex isn't offered unasked
     assert [t[0] for t in team.starter_tools(include_all=True)] == ["claude"] and team.BROKEN == ["Codex"]
+
+
+# ---------- Mender for team memories ----------
+
+class FakeDB:
+    def __init__(self):
+        self.data = {}
+
+    def get(self, key):
+        return self.data.get(key)
+
+    def set(self, key, value):
+        self.data[key] = value
+
+
+@pytest.fixture
+def mender_on(repo, monkeypatch):
+    from mnemolith import mender
+    monkeypatch.setattr(mender, "enabled", lambda: True)
+    monkeypatch.setattr(server, "db", lambda store=FakeDB(): store)
+    git(repo, "init", "-q")
+    team.init(repo)
+    (repo / "tax.py").write_text("# tax settings\nRATE = 8  # percent\nROUNDING = 'half-up'\n")
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "start")
+    return mender
+
+
+def test_mender_drafts_the_new_value_for_a_team_memory_from_git_history(repo, mender_on):
+    (repo / "tax.py").write_text("# tax settings\nRATE = 18  # percent\nROUNDING = 'half-up'\n")
+    git(repo, "commit", "-qam", "rate 18")
+    mem = team.add(repo, "The tax RATE is 18 percent, set in tax.py.", ["tax.py"])
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "memory")
+    (repo / "tax.py").write_text("# tax settings\nRATE = 21  # percent\nROUNDING = 'half-up'\n")
+    git(repo, "commit", "-qam", "new rate")
+    drafts = mender_on.refresh_team("shop", repo)
+    draft = drafts[mem.id]
+    assert draft["kind"] == "replace" and "21 percent" in draft["text"] and draft["by"] == "rules"
+    done = mender_on.approve_team("shop", mem.id, repo)
+    assert "Reworded" in done["message"]
+    fixed = team.find(repo, mem.name)
+    assert "21 percent" in fixed.text and team.changed(fixed, repo) == []
+    assert "suggested by Mender" in fixed.meta["edited"]
+    assert mender_on.refresh_team("shop", repo) == {}  # settled: no draft left
+
+
+def test_an_unrelated_change_gets_a_still_true_draft(repo, mender_on):
+    mem = team.add(repo, "The tax RATE is 8 percent, set in tax.py.", ["tax.py"])
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "memory")
+    (repo / "tax.py").write_text("# tax settings, reviewed\nRATE = 8  # percent\nROUNDING = 'half-up'\n")
+    draft = mender_on.refresh_team("shop", repo)[mem.id]
+    assert draft["kind"] == "confirm"
+    mender_on.approve_team("shop", mem.id, repo)
+    assert team.changed(team.find(repo, mem.name), repo) == []
+
+
+def test_an_ai_draft_for_a_team_memory_is_checked_and_can_be_dismissed(repo, mender_on):
+    mem = team.add(repo, "Rounding is half-up (tax.py).", ["tax.py"])
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "memory")
+    (repo / "tax.py").write_text("# tax settings\nRATE = 8  # percent\nROUNDING = 'banker'\n")
+    git(repo, "commit", "-qam", "banker's rounding")
+    listed = mender_on.describe_team_stale("shop", repo)
+    assert mem.id in listed and "ROUNDING = 'banker'" in listed
+    assert "password" in mender_on.propose_team("shop", mem.id, "The admin password is hunter2", "", False, "codex", repo)
+    msg = mender_on.propose_team("shop", mem.id, "Rounding is banker's rounding (tax.py).", "ROUNDING changed", False, "codex", repo)
+    assert "Draft saved" in msg
+    assert mender_on.load_team_drafts("shop")[mem.id]["by"] == "codex"
+    mender_on.dismiss_team("shop", mem.id, repo)
+    assert mender_on.refresh_team("shop", repo)[mem.id]["dismissed"]  # stays dismissed until the files change
+    with pytest.raises(mender_on.Refused):
+        mender_on.approve_team("shop", mem.id, repo)
+
+
+def test_a_draft_goes_stale_when_the_files_change_again(repo, mender_on):
+    mem = team.add(repo, "The tax RATE is 8 percent, set in tax.py.", ["tax.py"])
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "memory")
+    (repo / "tax.py").write_text("# tax settings\nRATE = 9  # percent\nROUNDING = 'half-up'\n")
+    git(repo, "commit", "-qam", "9")
+    mender_on.propose_team("shop", mem.id, "The tax RATE is 9 percent, set in tax.py.", "", False, "claude", repo)
+    (repo / "tax.py").write_text("# tax settings\nRATE = 10  # percent\nROUNDING = 'half-up'\n")
+    with pytest.raises(mender_on.Refused, match="changed again"):
+        mender_on.approve_team("shop", mem.id, repo)
+
+
+def test_mender_stays_out_of_team_memory_when_off_or_not_joined(repo, mender_on, monkeypatch):
+    mem = team.add(repo, "The tax RATE is 8 percent, set in tax.py.", ["tax.py"])
+    (repo / "tax.py").write_text("RATE = 9\n")
+    monkeypatch.setattr(mender_on, "enabled", lambda: False)
+    assert mender_on.refresh_team("shop", repo) == {}
+    monkeypatch.setattr(mender_on, "enabled", lambda: True)
+    team.leave(repo)
+    assert mender_on.refresh_team("shop", repo) == {} and mender_on.describe_team_stale("shop", repo) == ""

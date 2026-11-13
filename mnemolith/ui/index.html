@@ -1418,6 +1418,13 @@ function renderTeam() {
         const theirs = h("button", { class: "btn", type: "button", onclick: () => teamAct(theirs, "/api/team/keep", { project, name: m.name, which: "theirs" }) }, "Keep theirs");
         actions.append(theirs);
       }
+    } else if (kind === "stale" && !broken && m.draft && !m.draft.drifted) {
+      const still = m.draft.kind === "confirm";
+      const approve = h("button", { class: "btn primary", type: "button", onclick: () => teamAct(approve, "/api/team/fix", { project, name: m.name }) },
+        still ? "Approve: still true" : "Approve fix");
+      const edit = h("button", { class: "btn", type: "button", onclick: () => teamEdit(Object.assign({}, m, { text: m.draft.text }), body, project) }, "Edit…");
+      const dismiss = h("button", { class: "btn", type: "button", onclick: () => teamAct(dismiss, "/api/team/fix", { project, name: m.name, dismiss: true }) }, "Dismiss");
+      actions.append(approve, ...(still ? [] : [edit]), dismiss);
     } else if (kind === "stale" && !broken) {
       const ok = h("button", { class: "btn primary", type: "button", onclick: () => teamAct(ok, "/api/team/confirm", { project, name: m.name }) }, m.moved ? "Follow the move" : "Still true");
       actions.append(ok);
@@ -1448,6 +1455,16 @@ function renderTeam() {
       h("span", { class: "mono" }, pathNodes(m.path)), m.sides ? " to combine them. " : ". ", "Then commit to finish the merge. Your AI tools don’t see it until then."));
     if (m.unreadable) body.append(h("p", { class: "flag" }, "Written by a newer Mnemolith. Update Mnemolith to read it."));
     else if (m.problem) body.append(h("p", { class: "flag" }, `Can’t be read: ${m.problem}. Fix `, h("span", { class: "mono" }, pathNodes(m.path)), ". Your AI tools don’t see it until then."));
+    if (m.draft && kind === "stale" && !broken) {
+      const d = m.draft, still = d.kind === "confirm";
+      body.append(h("div", { class: `draft${d.drifted ? " drifted" : ""}`, role: "group", "aria-label": `Suggested fix for ${m.name}`, style: "margin-top:10px" },
+        h("div", { class: "draft-head" }, h("span", { class: "label" }, d.drifted ? "Suggested fix, now out of date" : "Suggested fix"), h("span", {}, `by ${d.by}`)),
+        still ? h("p", { class: "draft-text still" }, "Still true: nothing it says changed.") : h("p", { class: "draft-text" }, richText(d.text)),
+        d.reason ? h("p", { class: "draft-reason" }, pathNodes(d.reason)) : null,
+        (d.warnings || []).map((w) => h("p", { class: "draft-warn" }, "Unverified: ", w)),
+        d.drifted ? h("p", { class: "draft-warn" }, "The files changed again after this was drafted. Reload for a fresh draft, or decide yourself.") : null,
+        h("p", { class: "draft-reason" }, "Approving changes the memory’s file; you commit it like any change.")));
+    }
     if (kind === "stale" && !broken) body.append(h("p", { class: "flag" }, m.moved ? `${m.changed.join(", ")}.` : `Possibly outdated for everyone: ${m.changed.join(", ").replaceAll("`", "")} since this was confirmed.`));
     if (m.twin && kind !== "retired" && !m.conflicted) body.append(h("p", { class: "close" }, "Says nearly the same as, or disagrees with, ", h("span", { class: "mono" }, m.twin), ". Keep one: reword or retire the other."));
     if (m.close && kind !== "retired" && !m.conflicted) body.append(h("p", { class: "close" }, "Close to your own ", h("span", { class: "mono" }, m.close.id), `: “${m.close.text}”. If they say the same thing, retire yours; if they disagree, talk to your team.`));

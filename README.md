@@ -235,6 +235,12 @@ dashboard (**Revert this fix**) or with `mnemolith mender revert m7`: the old me
 and Mender won't suggest the same fix again unless the files change. `mnemolith status` and your AI tool tell you
 when fixes are waiting.
 
+**Team memories too.** When a [team memory](#team-memory) is flagged, Mender drafts its fix the same way: the rules
+find the version of each linked file the memory was confirmed against in git history and compare it with now, and
+your AI tool sees flagged team memories in `list_stale` and drafts with `propose_fix("team:<name>", ...)`. Drafts stay
+on your computer. Approving one in the dashboard's Team memory section rewords or confirms the memory's file, which you
+review and commit like any change; the file records that Mender suggested it.
+
 `mnemolith mend` drafts fixes for the repo you're in and lists them.
 
 ## Team memory
@@ -363,7 +369,7 @@ Installed some other way? Install `mnemolith` the same way, run `mnemolith setup
 | `list_conflicts()` / `resolve_conflict(...)` | Reviews pairs of very similar memories that may contradict each other. |
 | `sync_to_files()` | Writes current memories into `AGENTS.md` / `CLAUDE.md` (also: `mnemolith sync`). |
 | `list_stale()` | With Mender on: the stale memories, what changed in their files, and which already have a draft. |
-| `propose_fix(id, new_text?, reason?, still_true?, files?)` | With Mender on: drafts a fix for the user to approve in the dashboard. Checked against the code before it's shown. |
+| `propose_fix(id, new_text?, reason?, still_true?, files?)` | With Mender on: drafts a fix for the user to approve in the dashboard. Checked against the code before it's shown. Works for team memories too (`team:<name>`). |
 | `share_with_team(memory_id? \| fact?, files?)` | In a repo whose team memory you use, after `mnemolith team ai on`: shares a memory with the team as a file in the repo, for you to review and commit. Secret-checked. |
 
 ## Design decisions, and what the measurements said
@@ -545,7 +551,6 @@ What's coming next, roughly in order. Ideas and pushback are welcome in
 **Next: more help in review (December)**
 - **The pull request check, hardened.** A first version is in 0.4 (`mnemolith team action`); it needs use on real
   repos.
-- **Mender for team memories.** When a team memory is flagged, Mender drafts the fix as an edit to its file.
 - **`mnemolith.md` kept up to date** after each merge, so nobody runs `mnemolith team sync` by hand.
 
 **Then: memory for any folder (early 2027)**

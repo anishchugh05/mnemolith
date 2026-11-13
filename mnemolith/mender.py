@@ -19,6 +19,7 @@ Mender is optional. `mnemolith setup` asks whether to turn it on; `mnemolith men
 """
 import difflib
 import json
+import hashlib
 import os
 import re
 import subprocess
@@ -722,8 +723,9 @@ def describe_stale(project: str, root: Optional[Path], limit: int = 10) -> str:
         memory = {"id": mid, "status": status, "files": files, "text": text}
         if needs_decision(memory):
             waiting.append(memory)
+    team_part = describe_team_stale(project, root, limit)
     if not waiting:
-        return "No stale memories: every memory's linked files still match. Nothing to fix."
+        return team_part or "No stale memories: every memory's linked files still match. Nothing to fix."
     out = []
     for memory in waiting[:limit]:
         mid = memory["id"]
@@ -752,4 +754,225 @@ def describe_stale(project: str, root: Optional[Path], limit: int = 10) -> str:
     return ("Stale memories waiting for a decision. For each one without a draft, check the code, then call "
             "propose_fix with what's true now (or still_true=True). Base it only on what you read in the repo, and "
             "say in the reason what you checked. The user approves each draft in the dashboard; nothing changes "
-            "until then.\n\n" + "\n\n".join(out) + more)
+            "until then.\n\n" + "\n\n".join(out) + more + ("\n\n" + team_part if team_part else ""))
+
+
+# ---------- team memories ----------
+#
+# A team memory lives in a file in the repo, not in the engine, and records each linked file by a fingerprint of
+# its contents (see team.py) rather than by a git blob. To use the same rules, Mender looks through the file's git
+# history for the version with that fingerprint, then drafts exactly as it does for a personal memory. Drafts stay
+# on this computer, in the engine; only an approved fix is written to the memory's file, for the user to commit.
+
+TEAM_DRAFTS_KEY = "mnemolith:mender-team:"  # mnemolith:mender-team:<project> -> JSON {team id: draft}
+HISTORY_DEPTH = 200  # commits looked through for the version of a file a team memory was confirmed against
+
+
+def load_team_drafts(project: str) -> Dict[str, dict]:
+    raw = server.db().get(TEAM_DRAFTS_KEY + project)
+    try:
+        data = json.loads(raw) if raw else {}
+        return data if isinstance(data, dict) else {}
+    except ValueError:
+        return {}
+
+
+def save_team_drafts(project: str, drafts: Dict[str, dict]) -> None:
+    server.db().set(TEAM_DRAFTS_KEY + project, json.dumps(drafts) if drafts else "")
+
+
+def _git_bytes(root: Path, *args: str) -> Optional[bytes]:
+    try:
+        r = subprocess.run(["git", *args], cwd=root, capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def team_old_blob(root: Path, link: str, saved: str) -> Optional[str]:
+    """The git blob of a linked file as it was when the team memory was last confirmed: the version in history
+    whose fingerprint (or, for a part of a file, whose part) matches the one the memory recorded."""
+    from . import team
+    path, name = team.split_link(root, link)
+    commits = (_git(root, "log", "--format=%H", "-n", str(HISTORY_DEPTH), "--", path) or "").split()
+    for commit in commits:
+        data = _git_bytes(root, "show", f"{commit}:{path}")
+        if data is None or len(data) > MAX_FILE_BYTES:
+            continue
+        if name:
+            match = team._section_print(data.decode("utf-8", errors="replace"), name) == saved
+        else:
+            match = hashlib.sha1(data.replace(b"\r\n", b"\n")).hexdigest()[:12] == saved
+        if match:
+            blob = (_git(root, "rev-parse", f"{commit}:{path}") or "").strip()
+            return blob or None
+    return None
+
+
+def team_as_memory(root: Path, mem) -> dict:
+    """A team memory in the shape the rules work on: its linked files, each with the git blob it was confirmed
+    against when history has it (an empty hash when it doesn't, which the rules treat as needing judgment).
+    Folders are left out: a folder's change is a call for a person or an AI, not for the rules."""
+    from . import team
+    links = []
+    for link, saved in mem.files:
+        path, _name = team.split_link(root, link)
+        if not saved or (root / path).is_dir():
+            continue
+        blob = team_old_blob(root, link, saved) or ""
+        links.append(f"{path}@{blob}")
+    return {"id": mem.id, "status": "stale", "files": ",".join(dict.fromkeys(links)), "text": mem.text}
+
+
+def _team_flagged(root: Path) -> Dict[str, object]:
+    from . import team
+    return {m.id: m for m in team.current(root) if team.changed(m, root)}
+
+
+def refresh_team(project: str, root: Optional[Path]) -> Dict[str, dict]:
+    """Drafts for this repo's flagged team memories, kept up to date the same way as personal ones. Empty when
+    Mender is off or this person doesn't use the repo's team memory."""
+    from . import team
+    if not enabled() or root is None or not team.joined(root):
+        return {}
+    drafts = load_team_drafts(project)
+    before = json.dumps(drafts, sort_keys=True)
+    flagged = _team_flagged(root)
+    for tid in list(drafts):
+        if tid not in flagged:
+            del drafts[tid]  # confirmed, reworded or retired some other way
+    for tid, mem in flagged.items():
+        existing = drafts.get(tid)
+        if existing and existing.get("dismissed") and not drifted(existing, root):
+            continue
+        if existing and not existing.get("dismissed") and not (existing.get("by") == "rules" and drifted(existing, root)):
+            continue
+        new = draft_with_rules(team_as_memory(root, mem), root)
+        if new:
+            drafts[tid] = new
+        elif existing:
+            del drafts[tid]
+    if json.dumps(drafts, sort_keys=True) != before:
+        save_team_drafts(project, drafts)
+    return drafts
+
+
+def propose_team(project: str, memory_id: str, new_text: str, reason: str, still_true: bool, by: str,
+                 root: Optional[Path]) -> str:
+    """Saves a draft from an AI tool for a flagged team memory. Returns a message for the AI."""
+    from . import team
+    if root is None:
+        return "Couldn't find this project's repo, so the draft can't be checked against the files."
+    mem = team.find(root, memory_id)
+    if mem is None:
+        return f"No team memory with id {memory_id}."
+    if not team.changed(mem, root):
+        return f"{memory_id} isn't flagged as possibly outdated, so there's nothing to fix."
+    text = " ".join((new_text or "").split())
+    if not still_true and not text:
+        return "Pass new_text (what's true now), or still_true=True if the memory is still right."
+    if len(text) > 2000:
+        return "That's too long for one memory. Keep it to a sentence or two."
+    if text and team.scan_secrets(text):
+        return "Not saved: the new wording looks like it contains a password or key, and team memories are visible to everyone on the repo."
+    memory = team_as_memory(root, mem)
+    paths = [p.rsplit("@", 1)[0] for p in memory["files"].split(",") if p]
+    evidence = change_evidence(memory, root)
+    if still_true:
+        draft = _draft(memory, "confirm", mem.text, " ".join((reason or "Still true.").split())[:600], paths, root,
+                       evidence, by=by)
+    else:
+        draft = _draft(memory, "replace", text, " ".join((reason or "").split())[:600] or "Drafted by your AI tool.",
+                       paths, root, evidence, by=by, warnings=ground(memory, text, reason, root))
+    drafts = load_team_drafts(project)
+    drafts[mem.id] = draft
+    save_team_drafts(project, drafts)
+    note = f" Unverified: {' '.join(draft['warnings'])}" if draft["warnings"] else ""
+    return (f"Draft saved for {mem.id}. Nothing changes until the user approves it in the dashboard (`mnemolith ui`), "
+            f"and then it's a change to the memory's file for them to commit, so tell them it's waiting.{note}")
+
+
+def approve_team(project: str, memory_id: str, root: Optional[Path], text: Optional[str] = None) -> dict:
+    """Applies a draft to a team memory's file: rewords it, or records that it's still true. The user commits."""
+    from . import team
+    drafts = load_team_drafts(project)
+    draft = drafts.get(memory_id)
+    if not draft or draft.get("dismissed"):
+        raise Refused(404, f"There's no draft for {memory_id}.")
+    if root is None:
+        raise Refused(409, f"The dashboard doesn't know where the {project} repo is yet. Add it with Add project.")
+    mem = team.find(root, memory_id)
+    if mem is None or not team.changed(mem, root):
+        drafts.pop(memory_id, None)
+        save_team_drafts(project, drafts)
+        raise Refused(409, f"{memory_id} was already settled some other way, so the draft was dropped.")
+    if drifted(draft, root):
+        raise Refused(409, "The files changed again since this was drafted, so it may be out of date. "
+                           "Reload to get a fresh draft.")
+    who = f"{team.author(root) or 'you'} (suggested by {by_label(draft.get('by', ''))})"
+    new_text = " ".join((text if text is not None else draft["text"]).split())
+    try:
+        if (draft["kind"] == "confirm" and text is None) or new_text == " ".join(mem.text.split()):
+            done = team.confirm(root, mem.name, by=who)
+            message = f"Confirmed {done.name}."
+        else:
+            if not new_text:
+                raise Refused(400, "The memory can't be empty.")
+            done = team.edit(root, mem.name, new_text, by=who)
+            message = f"Reworded {done.name}."
+    except team.TeamError as e:
+        raise Refused(409, str(e).replace("Not shared", "Not changed"))
+    drafts.pop(memory_id, None)
+    save_team_drafts(project, drafts)
+    path = done.path.relative_to(root).as_posix()
+    return {"ok": True, "message": f"{message} Commit {path} so your team gets it too."}
+
+
+def dismiss_team(project: str, memory_id: str, root: Optional[Path]) -> dict:
+    drafts = load_team_drafts(project)
+    if memory_id not in drafts:
+        raise Refused(404, f"There's no draft for {memory_id}.")
+    keep = drafts[memory_id].get("file_hashes") or {}
+    if root is not None and keep:
+        keep = server.content_hashes(list(keep), root)
+    drafts[memory_id] = {"memory_id": memory_id, "dismissed": True, "file_hashes": keep}
+    save_team_drafts(project, drafts)
+    return {"ok": True, "message": "Draft dismissed. The team memory is still flagged."}
+
+
+def describe_team_stale(project: str, root: Optional[Path], limit: int = 10) -> str:
+    """The flagged team memories, with what changed, for list_stale. Empty when there are none."""
+    from . import team
+    if root is None or not team.joined(root):
+        return ""
+    drafts = refresh_team(project, root)
+    flagged = list(_team_flagged(root).values())
+    if not flagged:
+        return ""
+    out = []
+    for mem in flagged[:limit]:
+        lines = [f"[{mem.id}] \"{mem.one_line}\"", f"  Why flagged: {', '.join(team.changed(mem, root))}."]
+        draft = drafts.get(mem.id)
+        if draft and not draft.get("dismissed"):
+            what = "still true" if draft["kind"] == "confirm" else f"\"{draft['text']}\""
+            lines.append(f"  A draft is already waiting ({by_label(draft.get('by', ''))}): {what}. Skip this one "
+                         f"unless you think the draft is wrong.")
+        memory = team_as_memory(root, mem)
+        for entry in memory["files"].split(","):
+            if not entry:
+                continue
+            path, saved = entry.rsplit("@", 1)
+            old, now = old_version(root, saved), current_version(root, path)
+            if now is None and not (root / path).exists():
+                lines.append(f"  {path}: deleted or moved")
+            elif old is None:
+                lines.append(f"  {path}: changed; the confirmed version isn't in git history, so read the file as it is now.")
+            elif now is not None and old != now:
+                diff = list(difflib.unified_diff(old.splitlines(), now.splitlines(), f"a/{path}", f"b/{path}",
+                                                 lineterm="", n=1))
+                body = "\n".join("    " + d for d in diff[2:40])
+                lines.append(f"  {path} changed:\n{body}" + ("\n    ..." if len(diff) > 42 else ""))
+        out.append("\n".join(lines))
+    return ("Team memories (shared with everyone on this repo) flagged as possibly outdated. Draft fixes the same way, "
+            "with propose_fix and their team: id. An approved fix becomes a change to the memory's file that the "
+            "user commits.\n\n" + "\n\n".join(out))
