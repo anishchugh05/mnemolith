@@ -632,3 +632,20 @@ def test_a_pull_request_is_checked_against_what_it_changed(repo):
     comment = team.pr_comment(found)
     assert "1 team memory may be out of date" in comment and "docs/" in comment and team.pr_comment([]) == ""
     assert team.write_workflow(repo) and not team.write_workflow(repo)
+
+
+def test_a_teammate_who_hasnt_joined_is_told_once_and_never_after_leaving(repo, monkeypatch):
+    team.init(repo)
+    team.add(repo, "Deploys go out on Tuesdays.")
+    team.leave(repo)
+    monkeypatch.setattr(server, "repo_root", lambda: repo)
+    monkeypatch.setattr(server, "_NUDGED", False)
+    assert server._team_invite() == []  # they chose to leave: stay quiet
+    team.init(repo)
+    settings = team._settings()
+    settings["team"] = []  # a teammate who cloned the repo and never joined
+    team._save_settings(settings)
+    monkeypatch.setattr(server, "_NUDGED", False)
+    first = server._team_invite()
+    assert first and "mnemolith team init" in first[0] and "1 memory" in first[0]
+    assert server._team_invite() == []  # once per session

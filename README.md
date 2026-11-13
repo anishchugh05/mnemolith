@@ -331,7 +331,8 @@ each teammate runs `mnemolith team init` in their copy to use it (joining never 
   that first call itself.
 
 The secret check is a set of patterns, not a guarantee: it catches the common shapes, and review in the pull request
-is the second line of defence.
+is the second line of defence. [Team memory security](https://mnemolith.dev/team-security.html) explains what is and
+isn't shared; report a way past the check privately (see [SECURITY.md](SECURITY.md)).
 
 Other commands: `mnemolith team sync` rebuilds `mnemolith.md` after hand edits, `mnemolith team import` brings in
 notes later, and `mnemolith team ai off` takes the AI permission back.

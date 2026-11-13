@@ -549,6 +549,7 @@ def init(root: Path) -> dict:
         write_index(root)
         ensure_merge_rule(root)
     _set_joined(root, True)
+    _set_listed("team_declined", root, False)
     mark_seen(root)
     return {"created": created, "count": len(current(root)), "ignored": _ignored(root)}
 
@@ -558,7 +559,13 @@ def leave(root: Path) -> bool:
     was = joined(root)
     _set_joined(root, False)
     allow_ai(root, False)
+    _set_listed("team_declined", root, True)  # they chose not to use it: stop suggesting it
     return was
+
+
+def declined(root: Path) -> bool:
+    """Whether this person ran `mnemolith team remove` here, so nothing should suggest joining again."""
+    return _listed("team_declined", root)
 
 
 # ---------- search ----------
@@ -1114,6 +1121,9 @@ def set_warning(on: bool) -> None:
     settings["team_warning"] = bool(on)
     _save_settings(settings)
 
+
+FEEDBACK = ("Team memory is new. Tell us what's confusing or missing: "
+            "https://github.com/anishchugh05/mnemolith/issues or hello@mnemolith.dev")
 
 VISIBILITY = ("This memory will be visible to everyone with access to this repo. If the repo is public, "
               "that's anyone on the internet.")

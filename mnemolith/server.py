@@ -501,6 +501,33 @@ def _team_hits(vector: List[str], limit: int, floor: float, own: Optional[list] 
         return []
 
 
+_NUDGED = False  # the "this repo has a team memory" note goes out once per session, not on every recall
+
+
+def _team_invite() -> List[str]:
+    """A note for recall in a repo that has a team memory this person isn't using: without it, a teammate who
+    clones the repo never finds out their team's AI tools know things theirs doesn't. Once per session, and
+    never after they chose `mnemolith team remove`."""
+    global _NUDGED
+    if _NUDGED:
+        return []
+    try:
+        from . import team
+        root = repo_root()
+        if not team.exists(root) or team.joined(root) or team.declined(root):
+            return []
+        n = len(team.current(root))
+    except Exception:
+        return []
+    if not n:
+        return []
+    _NUDGED = True
+    return [f"This repo has a team memory: {n} {'memory' if n == 1 else 'memories'} the team shares for AI tools, "
+            f"which you can't see yet. Tell the user once, briefly, at a natural point: running "
+            f"`mnemolith team init` in the repo lets their AI tools use it (it only changes their own setup). "
+            f"Don't run it for them, and don't mention it again this session."]
+
+
 def _team_on_hold() -> List[str]:
     """A line for recall when team memories are being left out because git couldn't merge two people's changes
     to them: otherwise the AI just works without them and nobody knows why."""
@@ -540,7 +567,7 @@ def recall(query: str, limit: int = 5) -> str:
                         [(mid, text) for mid, _score, text in hits])
     if not lines and not shared:
         lines = ["No current memories match this."]
-    on_hold = _team_on_hold()
+    on_hold = _team_on_hold() + _team_invite()
     if shared:  # the team's first: they were reviewed, and they're what everyone else's AI is working from
         lines = [TEAM_HEADER] + shared + (["", "Your own memories (only you have these):"] + lines if lines else [])
     shown = {mid for mid, _, _ in hits} | {s.split("]", 1)[0].lstrip("[") for s in shared}

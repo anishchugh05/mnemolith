@@ -1471,7 +1471,8 @@ function renderTeam() {
                 : h("div", { class: "panel calm" }, pip("active"), h("span", {}, h("strong", {}, "Nothing shared yet. "), "Open one of your memories below and choose Share with team, or have Claude Code draft starter memories for the whole repo: run ", h("span", { class: "mono" }, "mnemolith team draft"), " in a terminal.")),
     h("div", { class: "team-foot" },
       sync, t.index_outdated ? h("span", {}, `${t.index} (the one-line list for teammates without Mnemolith) doesn’t match these files any more.`) : null,
-      h("span", {}, t.ai ? "AI tools may share when you ask." : "Only you can share."), ai, leave));
+      h("span", {}, t.ai ? "AI tools may share when you ask." : "Only you can share."), ai, leave,
+      h("a", { class: "linkish", href: "https://github.com/anishchugh05/mnemolith/issues", target: "_blank", rel: "noopener" }, "Send feedback")));
 }
 
 // Sharing asks first, unless you turned the question off: the memory becomes visible to everyone on the repo.

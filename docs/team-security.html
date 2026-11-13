@@ -1,0 +1,292 @@
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link
+      href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Cpath d=%27M16 2 29 9 16 16 3 9 16 2Zm-13 14 13 7 13-7M3 23l13 7 13-7%27 fill=%27none%27 stroke=%27%2334594f%27 stroke-width=%272.3%27/%3E%3C/svg%3E"
+      rel="icon"
+    />
+    <meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport" />
+    <meta content="light dark" name="color-scheme" />
+    <meta
+      content="How Mnemolith team memory keeps secrets and private data out of your repo: what it shares, what it never shares, and the checks that run before anything is written."
+      name="description"
+    />
+    <title>Team memory security — Mnemolith</title>
+    <script>
+      try {
+        const t = localStorage.getItem("mnemolith-theme");
+        if (t === "light" || t === "dark")
+          document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+    <link href="assets/site.css?v=14" rel="stylesheet" />
+    <link
+      as="font"
+      crossorigin=""
+      href="assets/plex-sans.woff2"
+      rel="preload"
+      type="font/woff2"
+    />
+    <meta property="og:title" content="Team memory security — Mnemolith" />
+    <meta
+      property="og:description"
+      content="How Mnemolith team memory keeps secrets and private data out of your repo: what it shares, what it never shares, and the checks that run before anything is written."
+    />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:url"
+      content="https://mnemolith.dev/team-security.html"
+    />
+    <meta
+      property="og:image"
+      content="https://mnemolith.dev/assets/og-image.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Mnemolith. Memory that stays true to your code. A dashboard card shows a stale memory and the file versions behind it."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Team memory security — Mnemolith" />
+    <meta
+      name="twitter:description"
+      content="How Mnemolith team memory keeps secrets and private data out of your repo."
+    />
+    <meta
+      name="twitter:image"
+      content="https://mnemolith.dev/assets/og-image.png"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="Mnemolith. Memory that stays true to your code. A stale-memory review card."
+    />
+    <!-- Privacy-friendly visit counts (no cookies): https://aethercache.goatcounter.com -->
+    <script async data-goatcounter="https://aethercache.goatcounter.com/count" data-goatcounter-settings='{"no_onload": true}' src="https://gc.zgo.at/count.js"></script>
+    <script>
+      // Count a visit only when the page is actually shown, not when it's prerendered in case you click.
+      (function () {
+        function count() {
+          if (window.goatcounter && window.goatcounter.count) window.goatcounter.count({ path: location.pathname + location.search });
+          else setTimeout(count, 300);
+        }
+        function shown() { if (document.prerendering) document.addEventListener("prerenderingchange", count, { once: true }); else count(); }
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", shown); else shown();
+      })();
+    </script>
+    <!-- Pages you're likely to open next load in the background when you hover or start a click on their link
+         (same site only; downloads like install.sh are left out). -->
+    <script type="speculationrules">
+      {
+        "prerender": [
+          {
+            "where": {
+              "and": [
+                { "href_matches": "/*" },
+                { "not": { "href_matches": "/*.sh" } },
+                { "not": { "href_matches": "/*.ps1" } },
+                { "not": { "href_matches": "/assets/*" } },
+                { "not": { "selector_matches": "[download], [target]" } }
+              ]
+            },
+            "eagerness": "moderate"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body class="page-about">
+    <a class="skip" href="#main">Skip to content</a>
+    <div class="wrap">
+      <header class="masthead">
+        <a aria-label="Mnemolith home" class="brand" href="index.html"
+          ><svg
+            aria-hidden="true"
+            class="brand-mark"
+            fill="none"
+            viewBox="0 0 30 32"
+          >
+            <path
+              d="M15 2 28 9 15 16 2 9 15 2Z"
+              stroke="currentColor"
+              stroke-width="2"
+            ></path>
+            <path
+              d="m2 16 13 7 13-7M2 23l13 7 13-7"
+              stroke="currentColor"
+              stroke-width="2"
+            ></path></svg
+          >Mnemolith</a
+        >
+        <nav aria-label="Main navigation">
+          <a href="index.html">Home</a
+          ><a href="how-it-works.html">How it works</a
+          ><a href="install.html">Install</a
+          ><a href="team.html">Team</a
+          ><a href="mender.html">Mender</a
+          ><a href="roadmap.html">Roadmap</a
+          ><a href="about.html">About</a>
+        </nav>
+        <button
+          aria-label="Switch color theme"
+          class="theme"
+          id="theme-toggle"
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            fill="none"
+            height="17"
+            viewBox="0 0 20 20"
+            width="17"
+          >
+            <path
+              d="M16.7 12.6A7 7 0 0 1 7.4 3.3 7 7 0 1 0 16.7 12.6Z"
+              stroke="currentColor"
+              stroke-linejoin="round"
+              stroke-width="1.4"
+            ></path>
+          </svg>
+        </button>
+      </header>
+    </div>
+    <main id="main" tabindex="-1">
+      <header class="page-intro wrap">
+        <h1>Team memory never shares what it shouldn&rsquo;t.</h1>
+        <div>
+          <p>
+            How <a href="team.html">team memory</a> keeps keys, passwords and your
+            own memories out of your repo. Nothing here involves a server: there
+            isn&rsquo;t one. Last updated November 13, 2026.
+          </p>
+        </div>
+      </header>
+      <section aria-labelledby="shared-title" class="about-story wrap">
+        <h2 id="shared-title">What goes into your repo</h2>
+        <div>
+          <p>
+            Only the memories someone on your team chose to share, each as a small
+            text file in <code>.mnemolith/team/memories/</code>, plus a one-line
+            list of them in <code>mnemolith.md</code> and one line in
+            <code>.gitattributes</code>. Each file holds the fact, who wrote it,
+            when it was confirmed, and the names and fingerprints of the files it
+            depends on. Never the contents of those files.
+          </p>
+          <p>
+            Mnemolith writes these files and stops there. It never commits or
+            pushes: they leave your computer only when you push, to wherever your
+            repo already lives, and your team reviews them like any other change.
+          </p>
+        </div>
+      </section>
+      <section aria-labelledby="never-title" class="about-story wrap">
+        <h2 id="never-title">What never goes into it</h2>
+        <div>
+          <p>
+            Your own memories, unless you share one. Mnemolith&rsquo;s data,
+            settings and model in <code>~/.mnemolith</code>, including which repos
+            you use team memory in and your sharing choices. Your code, your
+            prompts and your conversations with your AI.
+          </p>
+        </div>
+      </section>
+      <section aria-labelledby="check-title" class="about-story wrap">
+        <h2 id="check-title">The secret check</h2>
+        <div>
+          <p>
+            Every memory is checked on your computer before it&rsquo;s written to
+            the repo: when it&rsquo;s shared, reworded, imported from your notes,
+            or drafted by your AI. The check refuses anything that looks like a
+            private key, a cloud or API key, an access token (GitHub, GitLab,
+            Slack, Stripe, npm, PyPI, Hugging Face and others), a password written
+            out (<code>DB_PASSWORD=&hellip;</code>, or &ldquo;the admin password
+            is &hellip;&rdquo;), a login and password together, a web address with a
+            password in it, or a card number. When it refuses, it shows only the
+            first few characters, so the secret isn&rsquo;t printed in full.
+          </p>
+          <p>
+            Something that only might be a secret, like a long random-looking
+            string or a folder path with your user name in it, is left for a
+            person to decide. Your AI can&rsquo;t wave it through. And
+            <code>mnemolith.md</code> leaves out any memory that fails the check,
+            even one typed into a file by hand.
+          </p>
+          <p>
+            The check is a set of patterns, not a guarantee: it catches the common
+            shapes, and review in the pull request is the second line of defence.
+            If a secret ever does get committed, change the secret. Deleting the
+            file doesn&rsquo;t remove it from git&rsquo;s history.
+          </p>
+        </div>
+      </section>
+      <section aria-labelledby="who-title" class="about-story wrap">
+        <h2 id="who-title">Who can see team memories</h2>
+        <div>
+          <p>
+            Everyone who can see the repo, and no one else: team memory uses your
+            repo&rsquo;s own permissions, with no separate accounts. If the repo is
+            public, that&rsquo;s anyone on the internet, which is why Mnemolith
+            asks before every share, unless you turn that question off.
+          </p>
+        </div>
+      </section>
+      <section aria-labelledby="ai-title" class="about-story wrap">
+        <h2 id="ai-title">What AI tools can do</h2>
+        <div>
+          <p>
+            Read team memories in recall once you&rsquo;ve joined with
+            <code>mnemolith team init</code>. Cloning a repo isn&rsquo;t enough.
+            Share a memory only after you&rsquo;ve allowed it with
+            <code>mnemolith team ai on</code>, and only when you ask. They can
+            never commit, and never get past the secret check.
+          </p>
+          <p>
+            If you ask Mnemolith to draft starter memories, it runs Claude Code
+            once on your computer, under your own Claude account. That run can
+            read files in the repo and add team memories, and nothing else: no
+            edits, no commands beyond <code>git log</code> and <code>ls</code>.
+          </p>
+        </div>
+      </section>
+      <section aria-labelledby="report-title" class="about-story wrap">
+        <h2 id="report-title">Found a problem?</h2>
+        <div>
+          <p>
+            If you find a way to get a secret past the check, or anything else that
+            puts data at risk, please report it privately to
+            <a href="mailto:hello@mnemolith.dev">hello@mnemolith.dev</a>, or through
+            a <a href="https://github.com/anishchugh05/mnemolith/security/advisories/new">private security advisory</a>
+            on GitHub, rather than in a public issue.
+          </p>
+        </div>
+      </section>
+    </main>
+    <div class="wrap">
+      <footer class="footer">
+        <span>© 2026 Anish Chugh</span>
+        <div class="footer-links">
+          <a href="install.html#faq">FAQ</a
+          ><a href="https://github.com/anishchugh05/mnemolith/blob/main/LICENSE"
+            >License</a
+          ><a href="privacy.html">Privacy</a
+          ><a href="install.html#contact">Contact</a
+          ><a
+            href="https://github.com/anishchugh05/mnemolith"
+            >GitHub</a
+          ><a href="https://pypi.org/project/mnemolith/">PyPI</a
+          ><a href="https://glama.ai/mcp/servers/anishchugh05/mnemolith">Glama</a
+          ><span>Mnemolith v0.3.5</span>
+        </div>
+      </footer>
+    </div>
+    <div
+      aria-live="polite"
+      class="sr-only"
+      id="copy-status"
+      role="status"
+    ></div>
+    <script defer="" src="assets/site.js?v=11"></script>
+  </body>
+</html>

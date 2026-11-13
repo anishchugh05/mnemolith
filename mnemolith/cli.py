@@ -831,6 +831,7 @@ def cmd_team(args) -> int:
             print(f"  {a.name}: {short(a.one_line, 90)}\n  {b.name}: {short(b.one_line, 90)}\n")
     if team.joined(root):
         team.mark_seen(root)
+    print(f"\n{team.FEEDBACK}")
     if team.index_outdated(root):
         print(f"\n{team.INDEX} doesn't match these files any more. `mnemolith team sync` rebuilds it.")
     return 0
