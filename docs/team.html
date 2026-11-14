@@ -184,6 +184,34 @@
         </ol>
       </section>
 
+      <!-- Launch video -->
+      <section class="dashboard-section demo-section wrap" aria-labelledby="video-title" id="video">
+        <div class="section-lead">
+          <h2 id="video-title">See it in 70 seconds.</h2>
+          <p>
+            What Mnemolith does, and what team memory adds: a memory shared in a
+            pull request, flagged for everyone when the code changes, and caught
+            in review before the merge.
+          </p>
+        </div>
+        <figure class="dashboard-window">
+          <figcaption class="dashboard-window-bar">
+            <span>Mnemolith 0.4</span><span>1:10, with sound and captions</span>
+          </figcaption>
+          <video
+            class="demo-video"
+            src="assets/team-launch.mp4"
+            poster="assets/team-launch-poster.jpg"
+            width="1920"
+            height="1080"
+            controls
+            playsinline
+            preload="none"
+            aria-label="Mnemolith 0.4 launch video, with voiceover and captions. Your AI forgets between sessions, so you write notes for it, and the notes go stale when the code changes. Mnemolith is one memory for Claude Code, Claude Desktop, Cursor and Codex, with each memory tied to the files it depends on. When a file changes, the memory is flagged and Mender drafts the fix for you to approve. New in 0.4, team memory: a shared memory becomes a file in the repo, is reviewed in a pull request, and every teammate's AI knows it after the merge. A GitHub Action comments when a pull request changes code a team memory depends on. Keys are refused and nothing is committed for you. In tests, Claude passed 9 of 21 tasks with no memory, 18 with CLAUDE.md notes, and 21 with Mnemolith."
+          ></video>
+        </figure>
+      </section>
+
       <!-- Diagram -->
       <section aria-labelledby="how-title" class="section wrap team-how" id="how">
         <div class="section-lead">
@@ -348,7 +376,7 @@
           </div>
           <div class="safety-row">
             <h3>Caught in review</h3>
-            <p><code>mnemolith team action</code> adds a GitHub workflow that comments on pull requests that change something a team memory depends on. New, and lightly tested.</p>
+            <p><code>mnemolith team action</code> adds a GitHub workflow that comments on pull requests that change something a team memory depends on. It keeps one comment per pull request up to date as you push. New, and lightly tested.</p>
           </div>
           <div class="safety-row">
             <h3>Works across tools</h3>

@@ -245,8 +245,10 @@ review and commit like any change; the file records that Mender suggested it.
 
 ## Team memory
 
-What one person teaches their AI, every teammate's AI knows. Each person keeps their own memories, and each repo can
-have one shared team memory, kept as plain files in the repo:
+What one person teaches their AI, every teammate's AI knows. [Watch the 70-second video](https://mnemolith.dev/team.html#video)
+(with sound).
+
+Each person keeps their own memories, and each repo can have one shared team memory, kept as plain files in the repo:
 
 ```
 .mnemolith/team/README.md               what this folder is, for reviewers
@@ -315,8 +317,8 @@ each teammate runs `mnemolith team init` in their copy to use it (joining never 
 - **A record of who and when.** Each file carries who wrote it, and who last confirmed or reworded it and when.
   `mnemolith team` marks what arrived since you last looked.
 - **Caught in review.** `mnemolith team action` adds a GitHub workflow that comments on a pull request when it
-  changes something a team memory depends on, unless the memory was updated in the same pull request.
-  `mnemolith team check --base origin/main` runs the same check locally. New in 0.4 and lightly tested.
+  changes something a team memory depends on, unless the memory was updated in the same pull request. It keeps one
+  comment per pull request up to date as you push. `mnemolith team check --base origin/main` runs the same check locally. New in 0.4 and lightly tested.
 - **No merge conflicts from sharing.** Each memory is its own file, and the `.gitattributes` line tells git to keep
   both sides' lines in `mnemolith.md`, so two people sharing on different branches merge cleanly.
 - **Conflicts are held back.** If two people change the same memory and git can't merge them, `mnemolith team` and
@@ -608,14 +610,15 @@ crash_test.py                kill -9 crash-safety test
 
 ## Releasing
 
-Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, and `server.json`, commit, then:
+Bump every version number (`pyproject.toml`, `mnemolith/__init__.py`, `server.json`, and the website) with
+`python3 scripts/bump_version.py 0.4.0`, check `git diff`, commit, then:
 
 ```sh
 git tag v0.3.5 && git push --tags
 ```
 
-Once the release is on PyPI, point the Claude Code plugin at it: bump the version in
-`plugin/.claude-plugin/plugin.json` and `plugin/pyproject.toml`, run `uv lock` in `plugin/`, then commit and push.
+Once the release is on PyPI, point the Claude Code plugin at it: `python3 scripts/bump_version.py 0.4.0 --plugin`,
+run `uv lock` in `plugin/`, then commit and push.
 The plugin can't move first, because its lockfile needs the new release to exist.
 
 The [release workflow](.github/workflows/release.yml) checks the versions match, builds and smoke-tests the package,

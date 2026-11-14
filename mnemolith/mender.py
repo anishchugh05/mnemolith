@@ -434,6 +434,14 @@ def drifted(draft: dict, root: Path) -> bool:
     return bool(saved) and server.content_hashes(list(saved), root) != saved
 
 
+def drift_message(draft: dict) -> str:
+    """Why an out-of-date draft can't be approved, and what gets a fresh one: reloading redoes a rules draft,
+    but a draft from an AI tool only comes back if the tool drafts it again."""
+    again = ("Reload the dashboard to get a fresh draft." if draft.get("by") == "rules"
+             else f"Ask {by_label(draft.get('by', ''))} to draft it again, or dismiss this draft.")
+    return f"The files changed again since this was drafted, so it may be out of date. {again}"
+
+
 def refresh(project: str, root: Optional[Path]) -> Dict[str, dict]:
     """Drafts for this project's stale memories: drops drafts whose memory was settled some other way, redoes
     rule drafts whose files changed again, and drafts any new stale memory the rules can handle. Returns the
@@ -455,15 +463,15 @@ def refresh(project: str, root: Optional[Path]) -> Dict[str, dict]:
                     continue  # you dismissed this one and nothing changed since
                 del drafts[mid]
             existing = drafts.get(mid)
-            if existing and not (existing.get("by") == "rules" and drifted(existing, root)):
-                continue
+            if existing and not drifted(existing, root):
+                continue  # still matches the files
             if not needs_decision(memory):
                 continue
             new = draft_with_rules(memory, root)
             if new:
-                drafts[mid] = new
-            elif existing:
-                del drafts[mid]
+                drafts[mid] = new  # the files moved on: a fresh rules draft replaces the old one, whoever wrote it
+            elif existing and existing.get("by") == "rules":
+                del drafts[mid]  # an AI tool's draft stays, shown as out of date, until the tool drafts it again
     if json.dumps(drafts, sort_keys=True) != before:
         save_drafts(project, drafts)
     return drafts
@@ -567,8 +575,7 @@ def approve(project: str, memory_id: str, root: Optional[Path], text: Optional[s
     if root is None:
         raise Refused(409, f"The dashboard doesn't know where the {project} repo is yet. Add it with Add project.")
     if drifted(draft, root):
-        raise Refused(409, "The files changed again since this was drafted, so it may be out of date. "
-                           "Reload to get a fresh draft.")
+        raise Refused(409, drift_message(draft))
     files = [f for f in draft.get("files", []) if (root / f).is_file()]
     who = by_label(draft.get("by", ""))
     before = {"old_id": memory_id, "old_reason": server.status_reason(memory_id), "old_files": memory.get("files", ""),
@@ -781,12 +788,29 @@ def save_team_drafts(project: str, drafts: Dict[str, dict]) -> None:
     server.db().set(TEAM_DRAFTS_KEY + project, json.dumps(drafts) if drafts else "")
 
 
-def _git_bytes(root: Path, *args: str) -> Optional[bytes]:
+def _history_blobs(root: Path, path: str):
+    """(blob id, contents) of each version of a file in recent history, newest first. One `git cat-file --batch`
+    for all of them, so a long history doesn't mean hundreds of git processes on every dashboard load."""
+    commits = (_git(root, "log", "--format=%H", "-n", str(HISTORY_DEPTH), "--", path) or "").split()
+    if not commits:
+        return
+    asks = "".join(f"{c}:{path}\n" for c in commits).encode()
     try:
-        r = subprocess.run(["git", *args], cwd=root, capture_output=True, timeout=10)
+        r = subprocess.run(["git", "cat-file", "--batch"], cwd=root, input=asks, capture_output=True, timeout=20)
     except (OSError, subprocess.SubprocessError):
-        return None
-    return r.stdout if r.returncode == 0 else None
+        return
+    out, i = r.stdout, 0
+    while i < len(out):
+        end = out.find(b"\n", i)
+        if end < 0:
+            return
+        head = out[i:end].split()
+        i = end + 1
+        if len(head) != 3 or head[1] != b"blob":
+            continue  # "<name> missing": the file wasn't there in that commit
+        size = int(head[2])
+        data, i = out[i:i + size], i + size + 1
+        yield head[0].decode(), data
 
 
 def team_old_blob(root: Path, link: str, saved: str) -> Optional[str]:
@@ -794,18 +818,15 @@ def team_old_blob(root: Path, link: str, saved: str) -> Optional[str]:
     whose fingerprint (or, for a part of a file, whose part) matches the one the memory recorded."""
     from . import team
     path, name = team.split_link(root, link)
-    commits = (_git(root, "log", "--format=%H", "-n", str(HISTORY_DEPTH), "--", path) or "").split()
-    for commit in commits:
-        data = _git_bytes(root, "show", f"{commit}:{path}")
-        if data is None or len(data) > MAX_FILE_BYTES:
+    for blob, data in _history_blobs(root, path):
+        if len(data) > MAX_FILE_BYTES:
             continue
         if name:
             match = team._section_print(data.decode("utf-8", errors="replace"), name) == saved
         else:
             match = hashlib.sha1(data.replace(b"\r\n", b"\n")).hexdigest()[:12] == saved
         if match:
-            blob = (_git(root, "rev-parse", f"{commit}:{path}") or "").strip()
-            return blob or None
+            return blob
     return None
 
 
@@ -845,13 +866,15 @@ def refresh_team(project: str, root: Optional[Path]) -> Dict[str, dict]:
         existing = drafts.get(tid)
         if existing and existing.get("dismissed") and not drifted(existing, root):
             continue
-        if existing and not existing.get("dismissed") and not (existing.get("by") == "rules" and drifted(existing, root)):
-            continue
+        if existing and not existing.get("dismissed") and not drifted(existing, root):
+            continue  # still matches the files
         new = draft_with_rules(team_as_memory(root, mem), root)
+        if new and new.get("kind") == "replace" and team.scan_secrets(new.get("text", "")):
+            new = None  # the new value from the file looks like a key or password: never offer it for the repo
         if new:
-            drafts[tid] = new
-        elif existing:
-            del drafts[tid]
+            drafts[tid] = new  # a fresh rules draft replaces an out-of-date one, whoever wrote it
+        elif existing and (existing.get("dismissed") or existing.get("by") == "rules"):
+            del drafts[tid]  # an AI tool's draft stays, shown as out of date, until the tool drafts it again
     if json.dumps(drafts, sort_keys=True) != before:
         save_team_drafts(project, drafts)
     return drafts
@@ -907,8 +930,7 @@ def approve_team(project: str, memory_id: str, root: Optional[Path], text: Optio
         save_team_drafts(project, drafts)
         raise Refused(409, f"{memory_id} was already settled some other way, so the draft was dropped.")
     if drifted(draft, root):
-        raise Refused(409, "The files changed again since this was drafted, so it may be out of date. "
-                           "Reload to get a fresh draft.")
+        raise Refused(409, drift_message(draft))
     who = f"{team.author(root) or 'you'} (suggested by {by_label(draft.get('by', ''))})"
     new_text = " ".join((text if text is not None else draft["text"]).split())
     try:

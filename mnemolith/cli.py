@@ -374,6 +374,10 @@ def cmd_remove(args) -> int:
     try:
         engine.ensure_running()
         projects = {p["name"]: p for p in ui.api_projects(None, None)["projects"]}
+        if name not in projects:  # a folder path works too: `mnemolith remove ~/code/shop`
+            folder = Path(name).expanduser()
+            if folder.is_dir():
+                name = (repos.git_top(folder) or folder.resolve()).name
         if name not in projects:
             print(f"There's no project called {name} in Mnemolith."
                   + (f" Projects: {', '.join(sorted(projects))}." if projects else ""))
@@ -658,8 +662,10 @@ def cmd_team(args) -> int:
             print(f"You weren't using a team memory in {root.name}. Nothing changed.")
         return 0
     if not team.exists(root):
+        if args.action == "check" and args.markdown:
+            return 0  # nothing to check, and nothing to comment: the pull request check passes quietly
         print(f"{root.name} has no team memory yet. `mnemolith team init` starts one.")
-        return 0 if args.action == "status" else 1
+        return 0 if args.action in ("status", "check") else 1
     def named(example: str) -> bool:
         if not args.name:
             print(f"Which memory? Pass its name as `mnemolith team` shows it, e.g. `mnemolith team {example}`.")
@@ -1057,7 +1063,7 @@ def main(argv=None) -> None:
     p.add_argument("path", nargs="?", default=".")
     p.set_defaults(func=cmd_add)
     p = sub.add_parser("remove", help="remove a project, like Remove project in the dashboard (default: this folder's)")
-    p.add_argument("name", nargs="?", help="the project's name, as the dashboard shows it")
+    p.add_argument("name", nargs="?", help="the project's name, as the dashboard shows it, or its folder")
     p.add_argument("--yes", "-y", action="store_true", help="don't ask for confirmation")
     p.set_defaults(func=cmd_remove)
     p = sub.add_parser("import", help="turn notes in CLAUDE.md, AGENTS.md, and Cursor rules into memories")
@@ -1114,6 +1120,14 @@ def main(argv=None) -> None:
         parser.print_help()
         print("\nNew here? Run `mnemolith setup`.")
         sys.exit(0)
+    if args.command != "serve":  # serve runs inside a drafting run, which is still using Cursor's config
+        try:
+            from . import team
+            if team.restore_cursor_config():
+                print("Put Cursor's settings back the way they were before an interrupted `mnemolith team draft`.\n",
+                      file=sys.stderr)
+        except Exception:
+            pass
     try:
         sys.exit(args.func(args))
     except KeyboardInterrupt:

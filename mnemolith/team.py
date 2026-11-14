@@ -695,6 +695,24 @@ _SOFT = [
 ]
 
 
+def _card_shaped(raw: str, digits: List[int]) -> bool:
+    """A card network's number: its prefix and length, grouped the way cards are printed if it's grouped at all.
+    Keeps timestamps, build ids and long row ids from being refused just because they happen to pass the checksum."""
+    n, head = len(digits), "".join(map(str, digits[:4]))
+    two, four = int(head[:2]), int(head)
+    network = ((head[0] == "4" and n in (13, 16, 19))                                     # Visa
+               or ((51 <= two <= 55 or 2221 <= four <= 2720) and n == 16)                 # Mastercard
+               or (two in (34, 37) and n == 15)                                           # American Express
+               or ((head.startswith("6011") or two == 65 or 644 <= int(head[:3]) <= 649) and 16 <= n <= 19)  # Discover
+               or (3528 <= four <= 3589 and 16 <= n <= 19)                                # JCB
+               or ((300 <= int(head[:3]) <= 305 or two in (36, 38, 39)) and 14 <= n <= 19)  # Diners Club
+               or (two == 62 and 16 <= n <= 19))                                          # UnionPay
+    groups = [len(g) for g in re.split(r"[ -]", raw.strip()) if g]
+    printed = (len(groups) == 1 or groups in ([4, 6, 5], [4, 6, 4])
+               or (all(g == 4 for g in groups[:-1]) and 1 <= groups[-1] <= 4))
+    return network and printed
+
+
 def _luhn(digits: List[int]) -> bool:
     """The checksum real card numbers pass and most other long numbers don't."""
     total = 0
@@ -746,7 +764,7 @@ def scan_secrets(text: str) -> List[dict]:
             add("a login and password written out", True, m.start(1), m.start(1) + len(value))
     for m in _CARD.finditer(text):
         digits = [int(c) for c in m.group(0) if c.isdigit()]
-        if 13 <= len(digits) <= 19 and _luhn(digits):
+        if 13 <= len(digits) <= 19 and _card_shaped(m.group(0), digits) and _luhn(digits):
             add("a card number", True, m.start(), m.end())
     for m in _ID_NUMBER.finditer(text):
         add("what looks like a Social Security number", False, m.start(), m.end())
@@ -1291,19 +1309,52 @@ def starter_command(root: Path, tool: str, binary: str, config_file: Path, limit
     raise TeamError(f"Can't draft starter memories with {tool}.")
 
 
+CURSOR_BACKUP = "cursor-mcp-before-draft.json"  # in ~/.mnemolith while a Cursor drafting run has Cursor's config
+
+
+def restore_cursor_config() -> bool:
+    """Puts Cursor's config back if a drafting run was killed before it could (the terminal closed, the computer
+    slept and the run was ended). Does nothing while that run is still going. True if it restored something."""
+    import base64
+    backup = config.HOME / CURSOR_BACKUP
+    try:
+        saved = json.loads(backup.read_text(encoding="utf-8"))
+        path, pid = Path(saved["path"]), int(saved["pid"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    from .engine import _alive  # Windows-safe: there, os.kill(pid, 0) would end the process
+    try:
+        running = pid != os.getpid() and _alive(pid)
+    except OSError:
+        running = True  # can't tell: leave the file to the run
+    if running:
+        return False
+    if saved.get("content") is None:
+        path.unlink(missing_ok=True)
+    else:
+        path.write_bytes(base64.b64decode(saved["content"]))
+    backup.unlink(missing_ok=True)
+    return True
+
+
 class CursorServer:
     """For a Cursor run: Cursor's command-line agent only reads tool servers from its config file, so this
     points the file's "mnemolith" entry at the starter server for the run, and puts the file back exactly as it
     was afterwards, byte for byte (or removes it, if there wasn't one). It's the user's own config in their home
-    folder, never anything in the repo."""
+    folder, never anything in the repo. A copy waits in ~/.mnemolith until then, so a run that's killed outright
+    is put right by the next mnemolith command."""
 
     def __init__(self, root: Path, limit: int = MAX_IMPORT):
         from . import connect
         self.path = connect.cursor_config()
         self.server = starter_server(root, limit)
         self.before: Optional[bytes] = None
+        self._signals: dict = {}
 
     def __enter__(self):
+        import base64
+        import signal
+        restore_cursor_config()  # a run killed earlier left its copy: put that back first
         self.before = self.path.read_bytes() if self.path.exists() else None
         try:
             data = json.loads(self.before.decode("utf-8")) if self.before and self.before.strip() else {}
@@ -1311,14 +1362,30 @@ class CursorServer:
             raise TeamError(f"{self.path} isn't valid JSON, so Mnemolith won't change it. Fix it, or draft with another tool.")
         if not isinstance(data, dict):
             raise TeamError(f"{self.path} isn't a JSON object, so Mnemolith won't change it.")
+        config.HOME.mkdir(parents=True, exist_ok=True)
+        (config.HOME / CURSOR_BACKUP).write_text(json.dumps({
+            "path": str(self.path), "pid": os.getpid(),
+            "content": base64.b64encode(self.before).decode() if self.before is not None else None}), encoding="utf-8")
         servers = data.get("mcpServers") if isinstance(data.get("mcpServers"), dict) else {}
         servers["mnemolith"] = {"command": self.server[0], "args": self.server[1:]}
         data["mcpServers"] = servers
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        for sig in ("SIGTERM", "SIGHUP"):  # closing the terminal ends the run like Ctrl+C does, so the file goes back
+            if hasattr(signal, sig):
+                try:
+                    self._signals[sig] = signal.signal(getattr(signal, sig), _stop)
+                except (ValueError, OSError):
+                    pass  # not the main thread
         return self
 
     def __exit__(self, *exc):
+        import signal
+        for sig, old in self._signals.items():
+            try:
+                signal.signal(getattr(signal, sig), old)
+            except (ValueError, OSError):
+                pass
         if self.before is None:
             try:
                 self.path.unlink()
@@ -1326,7 +1393,12 @@ class CursorServer:
                 pass
         else:
             self.path.write_bytes(self.before)
+        (config.HOME / CURSOR_BACKUP).unlink(missing_ok=True)
         return False
+
+
+def _stop(*_):
+    raise KeyboardInterrupt
 
 
 def outside_changes(root: Path, before: set) -> List[str]:
@@ -1419,12 +1491,15 @@ def pr_check(root: Path, base: str) -> List[dict]:
     return found
 
 
+COMMENT_MARK = "<!-- mnemolith-team-check -->"  # how the workflow finds its own comment to update it
+
+
 def pr_comment(found: List[dict]) -> str:
     """The pull request comment for pr_check's findings, as Markdown. Empty if there's nothing to say."""
     if not found:
         return ""
     n = len(found)
-    lines = [f"### {n} team {'memory' if n == 1 else 'memories'} may be out of date after this pull request", "",
+    lines = [COMMENT_MARK, f"### {n} team {'memory' if n == 1 else 'memories'} may be out of date after this pull request", "",
              "Your team's AI tools rely on these. Each depends on something this pull request changes, and "
              "wasn't updated with it:", ""]
     for f in found:
@@ -1458,13 +1533,24 @@ jobs:
       - name: Check team memories against this pull request
         run: uvx mnemolith team check --base "origin/${{ github.base_ref }}" --markdown > team-memory.md
       - name: Comment on the pull request
-        if: ${{ hashFiles('team-memory.md') != '' }}
         continue-on-error: true  # pull requests from forks can't comment
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
         run: |
+          # one comment per pull request, updated on each push instead of a new one every time
+          old=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \\
+                --jq '.[] | select(.body | contains("<!-- mnemolith-team-check -->")) | .id' | tail -n 1)
+          if [ ! -s team-memory.md ] && [ -n "$old" ]; then
+            printf '%s\\n%s\\n' '<!-- mnemolith-team-check -->' \\
+              'All team memories this pull request touches are up to date now.' > team-memory.md
+          fi
           if [ -s team-memory.md ]; then
-            gh pr comment "${{ github.event.pull_request.number }}" --body-file team-memory.md
+            if [ -n "$old" ]; then
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$old" -F body=@team-memory.md > /dev/null
+            else
+              gh pr comment "$PR" --body-file team-memory.md
+            fi
           fi
 """
 

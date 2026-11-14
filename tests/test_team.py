@@ -819,3 +819,116 @@ def test_mender_stays_out_of_team_memory_when_off_or_not_joined(repo, mender_on,
     monkeypatch.setattr(mender_on, "enabled", lambda: True)
     team.leave(repo)
     assert mender_on.refresh_team("shop", repo) == {} and mender_on.describe_team_stale("shop", repo) == ""
+
+
+def test_mender_never_drafts_a_team_memory_that_would_put_a_key_in_the_repo(repo, mender_on, monkeypatch):
+    team.add(repo, "Tax is 8 percent.", files=["tax.py"])
+    (repo / "tax.py").write_text("# tax settings\nRATE = 9  # percent\nROUNDING = 'half-up'\n")
+    leaked = "Tax uses " + "ghp" + "_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    drafted = {"text": leaked}
+    monkeypatch.setattr(mender_on, "draft_with_rules", lambda memory, root: {
+        "kind": "replace", "text": drafted["text"], "by": "rules", "file_hashes": {}})
+    assert mender_on.refresh_team("shop", repo) == {}
+    drafted["text"] = "Tax is 9 percent."  # the same memory, without the key, does get a draft
+    assert [d["text"] for d in mender_on.refresh_team("shop", repo).values()] == ["Tax is 9 percent."]
+
+
+def test_an_out_of_date_ai_draft_says_to_ask_the_tool_again(repo, mender_on):
+    from mnemolith import mender
+    assert "Reload" in mender.drift_message({"by": "rules"})
+    msg = mender.drift_message({"by": "claude-code"})
+    assert "Ask Claude Code to draft it again" in msg and "Reload" not in msg
+
+
+def test_the_pull_request_comment_carries_a_mark_so_the_workflow_updates_it(repo):
+    text = team.pr_comment([{"name": "n", "text": "t", "path": "p", "why": ["`a.py` changed"]}])
+    assert text.startswith(team.COMMENT_MARK + "\n") and team.COMMENT_MARK in team.WORKFLOW_TEXT
+    assert "--edit-last" not in team.WORKFLOW_TEXT  # it finds its own comment, never someone else's
+
+
+def test_a_killed_drafting_run_has_cursors_config_put_back_by_the_next_command(repo, tmp_path, monkeypatch):
+    import subprocess
+    from mnemolith import connect
+    cfg = tmp_path / "cursor" / "mcp.json"
+    monkeypatch.setattr(connect, "cursor_config", lambda: cfg)
+    team.init(repo)
+    original = b'{"mcpServers": {"mnemolith": {"command": "mine"}}}\n'
+    cfg.parent.mkdir(parents=True)
+    cfg.write_bytes(original)
+    run = team.CursorServer(repo)
+    run.__enter__()  # and then the terminal is closed: __exit__ never runs
+    for sig, old in run._signals.items():
+        import signal
+        signal.signal(getattr(signal, sig), old)
+    assert "--starter" in cfg.read_text()
+    backup = config.HOME / team.CURSOR_BACKUP
+    saved = json.loads(backup.read_text())
+    done = subprocess.Popen(["true"])
+    done.wait()
+    saved["pid"] = done.pid  # a process that has finished
+    backup.write_text(json.dumps(saved))
+    assert team.restore_cursor_config() and cfg.read_bytes() == original and not backup.exists()
+    assert not team.restore_cursor_config()  # nothing left to do
+
+
+def test_a_drafting_run_still_going_is_left_alone(repo, tmp_path, monkeypatch):
+    from mnemolith import connect
+    cfg = tmp_path / "cursor" / "mcp.json"
+    monkeypatch.setattr(connect, "cursor_config", lambda: cfg)
+    team.init(repo)
+    with team.CursorServer(repo):
+        backup = config.HOME / team.CURSOR_BACKUP
+        saved = json.loads(backup.read_text())
+        saved["pid"] = 1  # alive (and not ours)
+        backup.write_text(json.dumps(saved))
+        assert not team.restore_cursor_config() and "--starter" in cfg.read_text()
+    assert not cfg.exists() and not backup.exists()
+
+
+def test_an_out_of_date_ai_draft_gives_way_to_a_fresh_rules_draft(repo, mender_on):
+    (repo / "tax.py").write_text("# tax settings\nRATE = 18  # percent\nROUNDING = 'half-up'\n")
+    git(repo, "commit", "-qam", "rate 18")
+    mem = team.add(repo, "The tax RATE is 18 percent, set in tax.py.", ["tax.py"])
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "memory")
+    (repo / "tax.py").write_text("# tax settings\nRATE = 18  # percent\nROUNDING = 'half-even'\n")
+    git(repo, "commit", "-qam", "rounding")
+    assert "Draft saved" in mender_on.propose_team("shop", mem.id, "", "Only rounding changed.", True, "claude-code", repo)
+    assert mender_on.refresh_team("shop", repo)[mem.id]["by"] == "claude-code"  # files unchanged since: it stays
+    (repo / "tax.py").write_text("# tax settings\nRATE = 21  # percent\nROUNDING = 'half-even'\n")
+    git(repo, "commit", "-qam", "new rate")
+    fresh = mender_on.refresh_team("shop", repo)[mem.id]
+    assert fresh["by"] == "rules" and "21 percent" in fresh["text"]
+
+
+def test_an_out_of_date_ai_draft_stays_when_the_rules_cant_help(repo, mender_on):
+    mem = team.add(repo, "ROUNDING in tax.py is half-up.", ["tax.py"])
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "memory")
+    (repo / "tax.py").write_text("# tax settings\nRATE = 8  # percent\nROUNDING = 'half-even'\n")
+    git(repo, "commit", "-qam", "rounding")
+    mender_on.propose_team("shop", mem.id, "ROUNDING in tax.py is half-even.", "ROUNDING changed.", False,
+                           "claude-code", repo)
+    (repo / "tax.py").write_text("# tax settings\nRATE = 8  # percent\n")  # the line is gone: a call for a person
+    git(repo, "commit", "-qam", "no rounding setting")
+    kept = mender_on.refresh_team("shop", repo).get(mem.id)
+    assert kept and kept["by"] == "claude-code" and mender_on.drifted(kept, repo)
+
+
+@pytest.mark.parametrize("text", [
+    "card 4111 1111 1111 1111",          # Visa test card
+    "card 5500-0000-0000-0004",          # Mastercard
+    "card 378282246310005",              # American Express
+    "card 3782 822463 10005",            # American Express, printed in its own groups
+    "card 6011111111111117",             # Discover
+])
+def test_card_numbers_are_still_caught(text):
+    assert any(f["what"] == "a card number" and f["hard"] for f in team.scan_secrets(text))
+
+
+@pytest.mark.parametrize("text", [
+    "Batches 20261110-131906 and 20261110-181857 were the final runs.",  # passes the checksum by chance
+    "The cutoff is 1731600000000 ms after the epoch.",
+    "Order ids start at 4000000000000000017 in staging.",  # 19 digits from 4, but fails the checksum
+    "The Discord channel is 123456789012345678.",
+])
+def test_long_numbers_that_arent_cards_are_left_alone(text):
+    assert not any(f["what"] == "a card number" for f in team.scan_secrets(text))

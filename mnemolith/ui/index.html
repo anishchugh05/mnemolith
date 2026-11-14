@@ -1208,6 +1208,14 @@ function renderTools() {
         h("code", { class: "cmd" }, t.uninstall))));
 }
 
+// What gets a fresh draft once the files moved on: reloading redoes a rules draft, but an AI tool's draft only
+// comes back if the tool drafts it again.
+function driftNote(d) {
+  return d.by === "Mender’s rules" || d.by === "Mender's rules"
+    ? "The files changed again after this was drafted. Reload for a fresh draft, or decide yourself."
+    : `The files changed again after this was drafted. Ask ${d.by} to draft it again, or decide yourself.`;
+}
+
 // A fix Mender drafted (by rules, or your AI tool through propose_fix), with what it's based on.
 // Approving is refused by the server if the files changed since, so the buttons only offer what still applies.
 function draftBox(m, actions, fold) {
@@ -1220,7 +1228,7 @@ function draftBox(m, actions, fold) {
           : h("p", { class: "draft-text" }, richText(d.text)),
     d.reason ? h("p", { class: "draft-reason" }, pathNodes(d.reason)) : null,
     d.warnings.map((w) => h("p", { class: "draft-warn" }, "Unverified: ", w)),
-    d.drifted ? h("p", { class: "draft-warn" }, "The files changed again after this was drafted. Reload for a fresh draft, or decide yourself.") : null,
+    d.drifted ? h("p", { class: "draft-warn" }, driftNote(d)) : null,
     d.evidence.length ? h("details", {}, h("summary", {}, `What it’s based on (${d.evidence.length})`),
       h("ul", {}, d.evidence.map((e) => h("li", {}, h("span", { class: "what" }, pathNodes(e.label)),
         e.detail ? h("pre", {}, e.detail) : null)))) : null);
@@ -1462,7 +1470,7 @@ function renderTeam() {
         still ? h("p", { class: "draft-text still" }, "Still true: nothing it says changed.") : h("p", { class: "draft-text" }, richText(d.text)),
         d.reason ? h("p", { class: "draft-reason" }, pathNodes(d.reason)) : null,
         (d.warnings || []).map((w) => h("p", { class: "draft-warn" }, "Unverified: ", w)),
-        d.drifted ? h("p", { class: "draft-warn" }, "The files changed again after this was drafted. Reload for a fresh draft, or decide yourself.") : null,
+        d.drifted ? h("p", { class: "draft-warn" }, driftNote(d)) : null,
         h("p", { class: "draft-reason" }, "Approving changes the memory’s file; you commit it like any change.")));
     }
     if (kind === "stale" && !broken) body.append(h("p", { class: "flag" }, m.moved ? `${m.changed.join(", ")}.` : `Possibly outdated for everyone: ${m.changed.join(", ").replaceAll("`", "")} since this was confirmed.`));
