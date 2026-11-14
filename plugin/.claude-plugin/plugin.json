@@ -2,7 +2,7 @@
   "name": "mnemolith",
   "displayName": "Mnemolith",
   "version": "0.3.5",
-  "description": "Shared project memory for Claude Code, Cursor and Codex. Memories are tied to the files they depend on and flagged when those files change, so Claude never works from stale notes.",
+  "description": "Shared project memory for Claude Code, Cursor and Codex, for you and your team. Memories are tied to the files they depend on and flagged when those files change, so Claude never works from stale notes.",
   "author": {
     "name": "Anish Chugh",
     "url": "https://github.com/anishchugh05"
