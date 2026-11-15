@@ -3107,3 +3107,125 @@ body {
     scrollbar-width: none;
   }
 }
+
+/* Team memory page */
+.team-hero h1 {
+  max-width: 15ch;
+}
+.team-pr {
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px -14px #203b3533;
+  overflow: hidden;
+  min-width: 0;
+}
+.team-pr-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+}
+.team-pr-bar span:last-child {
+  color: var(--ink);
+  font-weight: 500;
+  text-align: right;
+}
+.team-pr-file {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px;
+  background: var(--subtle);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.team-pr-path {
+  overflow-wrap: anywhere;
+}
+.team-pr-count {
+  color: var(--active);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.team-pr-diff {
+  margin: 0;
+  padding: 10px 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.75;
+  overflow-x: auto;
+}
+.team-pr-diff .add {
+  display: block;
+  padding: 0 18px 0 34px;
+  position: relative;
+  background: var(--active-soft);
+  color: var(--ink);
+  white-space: pre;
+}
+.team-pr-diff .add::before {
+  content: "+";
+  position: absolute;
+  left: 16px;
+  color: var(--active);
+}
+.team-pr-diff .fact {
+  font-weight: 600;
+}
+.team-pr-foot {
+  max-width: none;
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+}
+.team-how {
+  padding-bottom: 40px;
+}
+.team-how .section-lead {
+  margin-bottom: 28px;
+}
+.architecture .stale-box {
+  fill: var(--stale-soft);
+  stroke: var(--stale);
+  stroke-opacity: 0.5;
+}
+.architecture .svg-stale {
+  fill: var(--stale);
+}
+.architecture .arrow-head {
+  fill: var(--muted);
+}
+.architecture .connector.loop {
+  stroke-dasharray: 4 4;
+}
+.team-diagram .architecture-note,
+.team-how .architecture-note {
+  max-width: 70ch;
+}
+.page-team .measurement-table td strong {
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .team-pr {
+    max-width: 640px;
+  }
+}
+@media (max-width: 640px) {
+  .team-pr-bar {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .team-pr-bar span:last-child {
+    text-align: left;
+  }
+  .team-pr-diff {
+    font-size: 12px;
+  }
+}

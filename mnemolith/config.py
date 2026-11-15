@@ -74,3 +74,14 @@ def mender_enabled() -> bool:
         return bool(settings.get("mender")) if isinstance(settings, dict) else False
     except (OSError, ValueError):
         return False
+
+
+def team_repos() -> list:
+    """The repos whose team memory this person chose to use (`mnemolith team init`), as folder paths."""
+    import json
+    try:
+        settings = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        repos = settings.get("team") if isinstance(settings, dict) else None
+        return [p for p in repos if isinstance(p, str)] if isinstance(repos, list) else []
+    except (OSError, ValueError):
+        return []

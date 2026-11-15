@@ -25,8 +25,11 @@ it honest:
   next to it and confusing the model. Near-identical repeats are merged.
 - **Every memory can explain itself.** Which tool and session saved it, which file versions it was based on, and every
   change since: created, seen again, went stale, confirmed, replaced.
+- **Your team can share it.** Share a memory and it becomes a small file in the repo, reviewed in a pull request
+  like code. From the next pull, every teammate's AI knows it, and when the code it depends on changes, it's flagged
+  for everyone. See [Team memory](#team-memory).
 - **It works with the files you already use.** Current memories sync into a managed section of `AGENTS.md` and
-  `CLAUDE.md`, so they're committed, reviewed in PRs, and visible to teammates who don't run Mnemolith.
+  `CLAUDE.md`, and team memories are listed in `mnemolith.md`, so teammates who don't run Mnemolith see them too.
 
 It runs entirely on your machine, on top of a database engine I wrote from scratch.
 
@@ -77,6 +80,13 @@ Run it yourself (uses your own Claude Code plan; see [eval/](eval) for what each
 ```sh
 cd eval && python3 run.py --repeat 3 && python3 report.py
 ```
+
+**With teammates.** In a third round, teammate A told their AI something and asked for the team to know it; teammate
+B, in their own clone and a fresh session, got a task that needed it. Team memory got 4 of 4 tasks right, a shared
+CLAUDE.md 3, and personal memory or no memory 2. One run per task, so it's a direction, not a final score. In three
+more tasks the code changed after sharing, and every setup coped: in a small repo, Claude reads the code and notices.
+A team memory session cost about $0.15 per task, a little more than a notes file. The
+[full write-up](eval/results/2026-11-10-round3-team.md) includes what we changed in the evaluation along the way.
 
 ## What it looks like
 
@@ -225,7 +235,118 @@ dashboard (**Revert this fix**) or with `mnemolith mender revert m7`: the old me
 and Mender won't suggest the same fix again unless the files change. `mnemolith status` and your AI tool tell you
 when fixes are waiting.
 
+**Team memories too.** When a [team memory](#team-memory) is flagged, Mender drafts its fix the same way: the rules
+find the version of each linked file the memory was confirmed against in git history and compare it with now, and
+your AI tool sees flagged team memories in `list_stale` and drafts with `propose_fix("team:<name>", ...)`. Drafts stay
+on your computer. Approving one in the dashboard's Team memory section rewords or confirms the memory's file, which you
+review and commit like any change; the file records that Mender suggested it.
+
 `mnemolith mend` drafts fixes for the repo you're in and lists them.
+
+## Team memory
+
+What one person teaches their AI, every teammate's AI knows. [Watch the 70-second video](https://mnemolith.dev/team.html#video)
+(with sound).
+
+Each person keeps their own memories, and each repo can have one shared team memory, kept as plain files in the repo:
+
+```
+.mnemolith/team/README.md               what this folder is, for reviewers
+.mnemolith/team/memories/<name>.md      one memory per file
+mnemolith.md                            one line per memory, for teammates without Mnemolith
+.gitattributes                          one line, so mnemolith.md never causes a merge conflict
+```
+
+A memory file is a short header, then the fact:
+
+```
+---
+mnemolith: 1
+status: active
+author: Priya Shah
+created: 2026-11-10
+files:
+  - shop/catalog.py@3f2a9c1b04de
+---
+Never cache prices: they change during sales, and a cache served stale prices in March. Batch with get_prices.
+```
+
+**Setting it up**
+
+```sh
+mnemolith team init          # in the repo: starts one, or joins the one that's there
+mnemolith promote m42        # share one of your memories (ids are in `mnemolith list`)
+mnemolith team               # what the team knows, what's new, and what needs a look
+mnemolith team edit <name> "new wording"
+mnemolith team confirm <name>     # still true         mnemolith team retire <name>    # no longer true
+```
+
+So a new team memory doesn't start empty, `team init` offers three things, each only if you say yes:
+
+- turn the notes your repo already has in `CLAUDE.md`, `AGENTS.md` and Cursor rules into team memories (at most 30
+  at a time);
+- have your AI tool (Claude Code or Cursor, whichever you have) read the repo and draft up to 30 starter
+  memories: how to build and test it, its conventions, what not to change. Mnemolith has no AI of its own, so this
+  runs that tool once, under your own plan, kept to reading files and adding team memories: Claude Code by a list of
+  allowed tools, Codex by its read-only sandbox, Cursor by its sandbox. If a tool changes any other file
+  anyway, Mnemolith tells you which. Claude Code and Cursor are tested; Codex is experimental and only used when
+  asked for. `mnemolith team draft --with cursor` (or `claude`, `codex`) does it later. With
+  any other AI tool, run `mnemolith team ai on` and ask it to "draft starter team memories for this repo";
+- add one line to `CLAUDE.md` / `AGENTS.md` pointing at `mnemolith.md`, since AI tools don't read that file on
+  their own.
+
+Review what was written, then commit `.mnemolith/team/`, `mnemolith.md` and `.gitattributes` like any other change;
+each teammate runs `mnemolith team init` in their copy to use it (joining never touches the repo). The dashboard (`mnemolith ui`) has a Team memory section and a
+**Share with team** button on each of your memories.
+
+**How it behaves**
+
+- **Reviewed like code.** Mnemolith writes and edits the files but never commits. Every new memory, edit and
+  retirement goes through your normal review, and git keeps the history.
+- **Recall reads both.** Your AI gets the team's memories first, labelled `team:<name>`, then your own. A personal
+  memory that says nearly the same as a team one is pointed out, so it can be retired or the disagreement raised.
+- **Flagged for everyone.** Each team memory stores fingerprints of what it depends on: a file, a folder (up to 500
+  files), or one part of a file. `shop/api/v1.py#product` follows the function `product`, `README.md#Releasing` a
+  section, `config.yml#timeout` a setting, so the memory is flagged when that part changes and not on every edit to
+  a big file. Line endings don't matter, so Windows and Mac agree. A file that was renamed or moved is followed:
+  `confirm` relinks it. When one changes, every teammate's AI sees the memory as possibly outdated
+  until someone runs `mnemolith team confirm <name>` (still true) or `mnemolith team retire <name>`, and commits it.
+- **Sharing moves, it doesn't copy.** A shared memory leaves your own memories, so nobody sees the same fact twice.
+  Sharing something the team already has is refused, and `mnemolith team` points out two team memories that say
+  nearly the same thing. `mnemolith team unshare <name>` takes one back.
+- **A record of who and when.** Each file carries who wrote it, and who last confirmed or reworded it and when.
+  `mnemolith team` marks what arrived since you last looked.
+- **Caught in review.** `mnemolith team action` adds a GitHub workflow that comments on a pull request when it
+  changes something a team memory depends on, unless the memory was updated in the same pull request. It keeps one
+  comment per pull request up to date as you push. `mnemolith team check --base origin/main` runs the same check locally. New in 0.4 and lightly tested.
+- **No merge conflicts from sharing.** Each memory is its own file, and the `.gitattributes` line tells git to keep
+  both sides' lines in `mnemolith.md`, so two people sharing on different branches merge cleanly.
+- **Conflicts are held back.** If two people change the same memory and git can't merge them, `mnemolith team` and
+  the dashboard show both versions, and recall leaves that memory out until it's settled:
+  `mnemolith team keep <name> mine` (or `theirs`), then commit. A file that a hand edit broke is held back the same
+  way, with what's wrong.
+- **Follows branches.** A memory added on a branch exists only there until it merges.
+
+**Safety**
+
+- **Secrets are refused.** Every memory is scanned before it reaches the repo. Anything that looks like a key, token,
+  password (`DB_PASSWORD=...`, or "the admin password is ..."), card number or an address with a password in it is
+  refused; something that only might be one (a long commit id, a
+  path with your user name in it) is left for you to decide in the terminal or dashboard, and refused for AI tools.
+- **A heads-up before every share**: "This memory will be visible to everyone with access to this repo." Answer `a`
+  to stop asking; turn it back on in the dashboard's Settings.
+- **Each person opts in.** Cloning a repo doesn't feed its team memory to your AI until you run `mnemolith team init`.
+  `mnemolith team remove` stops it for you alone; the repo's files aren't touched.
+- **AI tools share only with permission.** After `mnemolith team ai on`, you can ask your AI to share something (or
+  to draft starter memories for the repo) and it calls `share_with_team`. Your AI tool may also ask you to approve
+  that first call itself.
+
+The secret check is a set of patterns, not a guarantee: it catches the common shapes, and review in the pull request
+is the second line of defence. [Team memory security](https://mnemolith.dev/team-security.html) explains what is and
+isn't shared; report a way past the check privately (see [SECURITY.md](SECURITY.md)).
+
+Other commands: `mnemolith team sync` rebuilds `mnemolith.md` after hand edits, `mnemolith team import` brings in
+notes later, and `mnemolith team ai off` takes the AI permission back.
 
 ## Moving from Aether Cache
 
@@ -250,7 +371,8 @@ Installed some other way? Install `mnemolith` the same way, run `mnemolith setup
 | `list_conflicts()` / `resolve_conflict(...)` | Reviews pairs of very similar memories that may contradict each other. |
 | `sync_to_files()` | Writes current memories into `AGENTS.md` / `CLAUDE.md` (also: `mnemolith sync`). |
 | `list_stale()` | With Mender on: the stale memories, what changed in their files, and which already have a draft. |
-| `propose_fix(id, new_text?, reason?, still_true?, files?)` | With Mender on: drafts a fix for the user to approve in the dashboard. Checked against the code before it's shown. |
+| `propose_fix(id, new_text?, reason?, still_true?, files?)` | With Mender on: drafts a fix for the user to approve in the dashboard. Checked against the code before it's shown. Works for team memories too (`team:<name>`). |
+| `share_with_team(memory_id? \| fact?, files?)` | In a repo whose team memory you use, after `mnemolith team ai on`: shares a memory with the team as a file in the repo, for you to review and commit. Secret-checked. |
 
 ## Design decisions, and what the measurements said
 
@@ -425,14 +547,13 @@ Mnemolith is an early, open-source project. These are the production systems in 
 What's coming next, roughly in order. Ideas and pushback are welcome in
 [GitHub issues](https://github.com/anishchugh05/mnemolith/issues).
 
-**Next: team memory (December to February)**
-- **Shared memory for a repo.** Each person keeps their own memories, and each repo gets one shared team memory that
-  every teammate's AI reads. You promote a memory to the team explicitly, so nothing gets shared by accident.
-- **Reviewed like code.** Team memories live in the repo as plain files. Mnemolith writes the file; you commit it
-  and open the pull request yourself, so teammates review a change to team knowledge the same way they review code.
-  Git history is the audit trail, and access follows repo permissions. Mnemolith never commits on its own.
-- **Stale memories flagged in pull requests.** A GitHub Action comments when a pull request changes files that team
-  memories depend on, so outdated knowledge gets caught in review.
+**Now: team memory (0.4).** One shared memory per repo, kept as plain files and reviewed like code. See
+[Team memory](#team-memory).
+
+**Next: more help in review (December)**
+- **The pull request check, hardened.** A first version is in 0.4 (`mnemolith team action`); it needs use on real
+  repos.
+- **`mnemolith.md` kept up to date** after each merge, so nobody runs `mnemolith team sync` by hand.
 
 **Then: memory for any folder (early 2027)**
 - Memories for folders that aren't code, tied to PDFs, Word files and spreadsheets, and flagged when those change,
@@ -446,8 +567,9 @@ What's coming next, roughly in order. Ideas and pushback are welcome in
 Mnemolith is v1 and early. It works end to end in automated tests and is now being tried in real Claude Code sessions.
 
 **Not done yet:**
-- **An evaluation on real-world repos.** The [evaluation above](#does-it-help) uses a small sample codebase built for
-  it; real projects are bigger and messier.
+- **An evaluation on real-world repos.** The [evaluations above](#does-it-help) use a small sample codebase built for
+  them; real projects are bigger and messier. In that small repo, the outdated flag didn't change outcomes: Claude
+  noticed code changes on its own.
 - **AOF compaction:** the log only grows, and every status change adds a line.
 
 **Engine limitations:**
@@ -475,9 +597,10 @@ mnemolith/                   the Python package behind the `mnemolith` command
   cli.py                     the `mnemolith` command
   ui.py, ui/index.html       the dashboard (`mnemolith ui`): a local server, its API, and the page
   mender.py                  Mender: rule-drafted fixes, drafts from AI tools, and the guarded approve
+  team.py                    team memory: the files in .mnemolith/team/, sharing, the secret check, mnemolith.md
   portability.py             import from notes files, export to JSON
   engine/mnemolith-engine.jar the prebuilt engine (rebuild with `python scripts/build_engine.py`)
-tests/test_mender.py         Mender's rules (`python -m pytest tests`)
+tests/                       Mender's rules and team memory (`python -m pytest tests`)
 eval/                        with-vs-without memory evaluation on a sample codebase (`python3 eval/run.py`)
 plugin/                      the Claude Code plugin (listed through .claude-plugin/marketplace.json)
 memory_mcp/calibrate.py      similarity calibration for duplicate/contradiction thresholds
@@ -487,14 +610,15 @@ crash_test.py                kill -9 crash-safety test
 
 ## Releasing
 
-Bump the version in `pyproject.toml`, `mnemolith/__init__.py`, and `server.json`, commit, then:
+Bump every version number (`pyproject.toml`, `mnemolith/__init__.py`, `server.json`, and the website) with
+`python3 scripts/bump_version.py 0.4.0`, check `git diff`, commit, then:
 
 ```sh
 git tag v0.3.5 && git push --tags
 ```
 
-Once the release is on PyPI, point the Claude Code plugin at it: bump the version in
-`plugin/.claude-plugin/plugin.json` and `plugin/pyproject.toml`, run `uv lock` in `plugin/`, then commit and push.
+Once the release is on PyPI, point the Claude Code plugin at it: `python3 scripts/bump_version.py 0.4.0 --plugin`,
+run `uv lock` in `plugin/`, then commit and push.
 The plugin can't move first, because its lockfile needs the new release to exist.
 
 The [release workflow](.github/workflows/release.yml) checks the versions match, builds and smoke-tests the package,

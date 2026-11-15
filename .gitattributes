@@ -1,0 +1,2 @@
+# Mnemolith: when two branches both add team memories, keep both lines of the list instead of conflicting
+mnemolith.md merge=union

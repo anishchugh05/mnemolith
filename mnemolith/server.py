@@ -47,16 +47,38 @@ MENDER_INSTRUCTIONS = (
     "until the user approves.")
 
 
-def instructions(mender_on: bool) -> str:
-    return INSTRUCTIONS + (MENDER_INSTRUCTIONS if mender_on else "")
+TEAM_INSTRUCTIONS = (
+    "\n- This repo has a team memory: memories shared by everyone who works on it, kept as files in the repo. "
+    "recall shows them first, with ids like team:name. When the user asks you to share something with the team, "
+    "or wants their teammates' AI tools to know it, call share_with_team (with files= it depends on) instead of "
+    "remember or a notes file.")
+
+
+def instructions(mender_on: bool, team_on: bool = False) -> str:
+    return INSTRUCTIONS + (TEAM_INSTRUCTIONS if team_on else "") + (MENDER_INSTRUCTIONS if mender_on else "")
+
+
+def _team_at_startup() -> bool:
+    """Whether the repo this session started in has a team memory this person uses. Worked out before the
+    rest of this module exists, because it decides the instructions the server is created with."""
+    try:
+        start = Path(config.repo_override()).expanduser() if config.repo_override() else Path.cwd()
+        if not start.is_dir():
+            start = Path.cwd()
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=start, capture_output=True, text=True, timeout=5)
+        root = Path(top.stdout.strip()) if top.returncode == 0 and top.stdout.strip() else start
+        return str(root.resolve()) in config.team_repos() and (root / ".mnemolith" / "team").is_dir()
+    except Exception:
+        return False
 
 
 MENDER_ON = config.mender_enabled()  # read once per session: tools appear or not when the AI tool starts
+TEAM_ON = _team_at_startup()  # likewise: share_with_team is only offered where there's a team to share with
 
 try:
-    mcp = MCPServer("mnemolith", instructions=instructions(MENDER_ON), version=__version__)
+    mcp = MCPServer("mnemolith", instructions=instructions(MENDER_ON, TEAM_ON), version=__version__)
 except Exception:  # mcp 1.x has no version argument; set it on the underlying server instead
-    mcp = MCPServer("mnemolith", instructions=instructions(MENDER_ON))
+    mcp = MCPServer("mnemolith", instructions=instructions(MENDER_ON, TEAM_ON))
     try:
         mcp._mcp_server.version = __version__
     except AttributeError:
@@ -321,6 +343,7 @@ def status_reason(memory_id: str) -> str:
 
 
 FILE_CHANGE = "since this was saved"  # how check_staleness phrases a file-change reason
+TEAM_MOVED = "moved to team memory"  # team.MOVED: why a personal memory was retired when it was shared
 
 
 def add_memory(project: str, fact: str, linked_files: str = "", source: str = "",
@@ -346,6 +369,8 @@ def past_versions(project: str, vector: List[str], limit: int = 3) -> List[str]:
             if score < config.RELATED_SIMILARITY:
                 continue
             reason = status_reason(mid)
+            if reason.startswith(TEAM_MOVED):
+                continue  # it was shared with the team, where recall already finds it
             if status == "superseded":
                 label = f"no longer true, {reason}" if reason else "no longer true, replaced by a newer memory"
             elif reason.endswith(FILE_CHANGE):
@@ -394,6 +419,10 @@ def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "", n
                 return ("Not saved: this looks like something already known:\n" + listed +
                         f"\nIf that covers it, you're done. If yours makes it untrue, call remember again with "
                         f"replaces=\"{close[0][0]}\". If it's a separate fact, call remember again with new=True.")
+            shared = _team_hits(vector, 2, config.SAME_FACT_SIMILARITY)
+            if shared:
+                return ("Not saved: your team's shared memory already has this:\n" + "\n".join(shared) +
+                        "\nIf that covers it, you're done. If it's a separate fact, call remember again with new=True.")
         mem_id, outcome, related = add_memory(project_name(), fact, link_files(files) if files else "", vector=vector)
         if outcome == "duplicate":
             return f"Already known as {mem_id}; noted that it came up again. Nothing new was stored."
@@ -432,8 +461,93 @@ def _setup_memories(project: str, already: set, limit: int = 2) -> List[str]:
         rows = run("MEM.LIST", project)
     except EngineDown:
         return []
-    return [f"[{mid}] {text}" for mid, _status, _files, text in rows
-            if mid not in already and _SETUP.search(text or "")][:limit]
+    found = [f"[{mid}] {text}" for mid, _status, _files, text in rows
+             if mid not in already and _SETUP.search(text or "")][:limit]
+    if len(found) < limit:
+        try:
+            from . import team
+            root = repo_root()
+            if team.joined(root):
+                found += [team.line(m, root) for m in team.current(root)
+                          if m.id not in already and _SETUP.search(m.text)][:limit - len(found)]
+        except Exception:
+            pass  # team memory never gets in the way of recall
+    return found
+
+
+# ---------- team memory: shared files in the repo (see team.py) ----------
+
+TEAM_HEADER = "Team memories (shared by everyone on this repo; each line below is the whole memory):"
+
+
+def _team_hits(vector: List[str], limit: int, floor: float, own: Optional[list] = None) -> List[str]:
+    """The team's memories closest to a query, as lines for the AI. own is this person's hits [(id, text)]: a
+    team memory very close to one of them says so, since they either repeat or contradict each other.
+    Best effort: [] on any problem, and always [] unless this person joined the repo's team memory."""
+    try:
+        from . import team
+        root = repo_root()
+        hits = team.search(root, [float(x) for x in vector], limit, floor)
+        close = team.overlaps(root, own or [], [m for _, m in hits])
+        lines = []
+        for score, m in hits:
+            text = team.line(m, root, score)
+            if m.id in close:
+                text += (f" (very close to your own [{close[m.id][0]}]: if they say the same thing, retire yours "
+                         f"with mark_outdated; if they disagree, tell the user instead of picking one)")
+            lines.append(text)
+        return lines
+    except Exception:
+        return []
+
+
+_NUDGED = False  # the "this repo has a team memory" note goes out once per session, not on every recall
+
+
+def _team_invite() -> List[str]:
+    """A note for recall in a repo that has a team memory this person isn't using: without it, a teammate who
+    clones the repo never finds out their team's AI tools know things theirs doesn't. Once per session, and
+    never after they chose `mnemolith team remove`."""
+    global _NUDGED
+    if _NUDGED:
+        return []
+    try:
+        from . import team
+        root = repo_root()
+        if not team.exists(root) or team.joined(root) or team.declined(root):
+            return []
+        n = len(team.current(root))
+    except Exception:
+        return []
+    if not n:
+        return []
+    _NUDGED = True
+    return [f"This repo has a team memory: {n} {'memory' if n == 1 else 'memories'} the team shares for AI tools, "
+            f"which you can't see yet. Tell the user once, briefly, at a natural point: running "
+            f"`mnemolith team init` in the repo lets their AI tools use it (it only changes their own setup). "
+            f"Don't run it for them, and don't mention it again this session."]
+
+
+def _team_on_hold() -> List[str]:
+    """A line for recall when team memories are being left out because git couldn't merge two people's changes
+    to them: otherwise the AI just works without them and nobody knows why."""
+    try:
+        from . import team
+        root = repo_root()
+        if not team.joined(root):
+            return []
+        n = sum(1 for m in team.load(root) if team.conflicted(m))
+    except Exception:
+        return []
+    if not n:
+        return []
+    return [f"{n} team {'memory is' if n == 1 else 'memories are'} left out because two people changed "
+            f"{'it' if n == 1 else 'them'} and git couldn't merge the changes. Tell the user: `mnemolith team` shows "
+            f"both versions and which file to fix."]
+
+
+def _team_id(memory_id: str) -> bool:
+    return memory_id.strip().startswith("team:")
 
 
 @core_tool()
@@ -449,9 +563,17 @@ def recall(query: str, limit: int = 5) -> str:
     except EngineDown as e:
         return store_down(e)
     lines = [f"[{mid}] (similarity {float(score):.2f}) {text}" for mid, score, text in hits]
-    if not lines:
+    shared = _team_hits(vector, max(1, min(limit, 20)), config.RELATED_SIMILARITY,
+                        [(mid, text) for mid, _score, text in hits])
+    if not lines and not shared:
         lines = ["No current memories match this."]
-    basics = _setup_memories(project_name(), {mid for mid, _, _ in hits})
+    on_hold = _team_on_hold() + _team_invite()
+    if shared:  # the team's first: they were reviewed, and they're what everyone else's AI is working from
+        lines = [TEAM_HEADER] + shared + (["", "Your own memories (only you have these):"] + lines if lines else [])
+    shown = {mid for mid, _, _ in hits} | {s.split("]", 1)[0].lstrip("[") for s in shared}
+    if on_hold:
+        lines += [""] + on_hold
+    basics = _setup_memories(project_name(), shown)
     if basics:
         lines += ["", "How to build and test this project (comes with every recall):"] + basics
     just_stale = {line.split("]", 1)[0] for line in stale}
@@ -479,6 +601,8 @@ def recall(query: str, limit: int = 5) -> str:
 def explain_memory(memory_id: str) -> str:
     """Show where a memory came from (which tool and session saved it, which files it's linked to)
     and everything that has happened to it since. Use it when a memory looks wrong or surprising."""
+    if _team_id(memory_id):
+        return _explain_team(memory_id)
     try:
         r = run("MEM.WHY", memory_id)
     except EngineDown as e:
@@ -495,11 +619,32 @@ def explain_memory(memory_id: str) -> str:
     return "\n".join(lines)
 
 
+def _explain_team(memory_id: str) -> str:
+    from . import team
+    root = repo_root()
+    mem = team.find(root, memory_id)
+    if mem is None:
+        return f"No team memory with id {memory_id}."
+    what = team.changed(mem, root)
+    return "\n".join([
+        f"{mem.id}: \"{mem.one_line}\"",
+        f"a team memory, shared with everyone on this repo: {mem.path.relative_to(root).as_posix()}",
+        f"status: {mem.status}" + (f", possibly outdated: {', '.join(what)} since it was confirmed" if what else ""),
+        f"written by: {mem.meta.get('author') or 'unknown'}" + (f" on {mem.meta['created']}" if mem.meta.get("created") else ""),
+        f"linked files: {', '.join(p for p, _ in mem.files) or 'none'}",
+        "Its history is the file's git history (git log on that file)."])
+
+
 @mcp.tool()
 def mark_outdated(memory_id: str, reason: str) -> str:
     """Mark a memory as no longer true, with a short reason. It stops counting as current but keeps its
     history. If you know what's true now, save that with remember(..., replaces=<this id>) instead, so
     the next session knows the new fact, not just that the old one is wrong."""
+    if _team_id(memory_id):
+        name = memory_id.strip().removeprefix("team:")
+        return (f"{memory_id} is a team memory, shared with everyone on this repo, so it isn't retired from here. "
+                f"Tell the user what looks wrong. They can reword it with `mnemolith team edit {name} \"...\"` or "
+                f"retire it with `mnemolith team retire {name}`, then review and commit the change.")
     try:
         reply = run("MEM.STATUS", memory_id, "stale", "REASON", reason)
     except EngineDown as e:
@@ -546,6 +691,14 @@ def check_stale() -> str:
 def confirm_memory(memory_id: str) -> str:
     """Mark a memory as still true (e.g. after it was retired because a linked file changed, but the
     fact itself didn't). Re-links it to the current version of its files."""
+    if _team_id(memory_id):
+        from . import team
+        try:
+            mem = team.confirm(repo_root(), memory_id)
+        except team.TeamError as e:
+            return str(e)
+        return (f"Confirmed {mem.id}: {mem.path.relative_to(repo_root()).as_posix()} now records the current "
+                f"versions of its files. Tell the user it's a change in the repo for them to commit.")
     try:
         linked = confirm(memory_id)
     except EngineDown as e:
@@ -688,10 +841,66 @@ def propose_fix(memory_id: str, new_text: str = "", reason: str = "", still_true
     files: repo-relative files the new fact depends on, if different from the old memory's (e.g. after a move)."""
     try:
         from . import mender
+        if _team_id(memory_id):
+            return mender.propose_team(project_name(), memory_id.strip(), new_text, reason, still_true, config.SOURCE,
+                                       repo_root())
         return mender.propose(memory_id, new_text, reason, still_true, config.SOURCE, files, git_toplevel())
     except EngineDown as e:
         return store_down(e)
 
+
+def share_with_team(memory_id: str = "", fact: str = "", files: Optional[List[str]] = None) -> str:
+    """Share a memory with everyone on this repo, as a file in .mnemolith/team/memories/ that the user reviews
+    and commits. Only when the user asks you to share something with the team, or asks for starter team memories.
+    Before calling, tell the user: it will be visible to everyone with access to this repo.
+
+    memory_id: one of the user's own memories to share (e.g. "m42"); it moves to the team.
+    fact: or a new fact to share directly. Always pass files= with what it depends on: that's how everyone's AI
+    tools learn when it may have gone out of date. Prefer one part of a file over the whole file when the fact
+    is about a function, class, setting or section: "shop/api/v1.py#product", "README.md#Releasing". A whole
+    file or a folder works too. For starter memories, read the repo and
+    share at most 30 of the most useful facts, one call each.
+    What belongs: decisions and their reasons, conventions, who owns what, setup gotchas, promises to partners.
+    Not personal preferences, and never passwords, keys or tokens (those are refused)."""
+    from . import team
+    root = repo_root()
+    if not team.joined(root):
+        return "This repo has no team memory in use here. The user can start or join one with `mnemolith team init`."
+    starter = team.starter_limit()  # set while `mnemolith team init` has the user's AI tool draft starter memories
+    if starter is not None:
+        if memory_id.strip():
+            return "This run only drafts new starter memories: pass fact=, not memory_id."
+        if len(team.load(root)) >= starter:
+            return "That's enough starter memories for the team to review in one go. Stop here and report how many you shared."
+    elif not team.ai_allowed(root):
+        return ("The user hasn't allowed AI tools to share memories with the team in this repo yet. Ask them to run "
+                "`mnemolith team ai on` once (or turn it on in `mnemolith ui`), or to share it themselves with "
+                f"`mnemolith promote {memory_id or '<id>'}`. Don't run those commands for them.")
+    try:
+        if memory_id.strip():
+            mem = team.promote(root, project_name(), memory_id.strip())
+        elif fact.strip():
+            same = team.similar(root, fact)
+            if same:
+                return (f"Not shared: the team memory already has this: [{same.id}] {same.one_line} If yours adds "
+                        f"something, tell the user; they can reword it with `mnemolith team edit {same.name}`.")
+            # starter memories link a few files at most, or they flag on every unrelated edit
+            mem = team.add(root, fact, files, max_files=team.STARTER_MAX_FILES if starter is not None else None)
+        else:
+            return "Pass memory_id (one of the user's memories) or fact (a new one)."
+    except team.SecretFound as e:
+        return str(e) + (" If the user is sure it isn't a secret, they can share it themselves from the terminal "
+                         "or the dashboard." if e.overridable else "")
+    except team.TeamError as e:
+        return str(e)
+    except EngineDown as e:
+        return store_down(e)
+    return (f"Shared as {mem.id}: {mem.path.relative_to(root).as_posix()} (mnemolith.md was updated too). They're "
+            f"changes in the repo for the user to review and commit; don't commit them yourself.")
+
+
+if TEAM_ON:
+    mcp.tool()(share_with_team)
 
 if MENDER_ON:
     mcp.tool()(list_stale)

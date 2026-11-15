@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.anishchugh05/mnemolith",
   "title": "Mnemolith",
-  "description": "Shared local memory for AI coding tools that stays true to your code.",
+  "description": "Shared local memory for AI coding tools and teams that stays true to your code.",
   "repository": {
     "url": "https://github.com/anishchugh05/mnemolith",
     "source": "github"

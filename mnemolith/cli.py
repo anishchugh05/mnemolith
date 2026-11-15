@@ -235,6 +235,13 @@ def cmd_status(args) -> int:
         counts = Counter(status for _, status, _, _ in run("MEM.LIST", project, "STATUS", "any"))
         summary = ", ".join(f"{counts[s]} {s}" for s in ("active", "stale", "superseded") if counts[s])
         print(f"This project ({project}): {summary or 'no memories yet'}")
+    from pathlib import Path
+    from . import repos, team
+    top = repos.git_top(Path.cwd())
+    if top and team.exists(top):
+        n = len(team.current(top))
+        print(f"Team memory: {n} shared {'memory' if n == 1 else 'memories'}" + (
+            "" if team.joined(top) else ", not in use here (run `mnemolith team init` to use them)"))
     connected = [t for t in connect.TOOLS if connect.CHECKS[t]()]
     print("Connected tools: " + (", ".join(connected) if connected else "none (run `mnemolith connect`)"))
     if config.mender_enabled():
@@ -367,6 +374,10 @@ def cmd_remove(args) -> int:
     try:
         engine.ensure_running()
         projects = {p["name"]: p for p in ui.api_projects(None, None)["projects"]}
+        if name not in projects:  # a folder path works too: `mnemolith remove ~/code/shop`
+            folder = Path(name).expanduser()
+            if folder.is_dir():
+                name = (repos.git_top(folder) or folder.resolve()).name
         if name not in projects:
             print(f"There's no project called {name} in Mnemolith."
                   + (f" Projects: {', '.join(sorted(projects))}." if projects else ""))
@@ -536,7 +547,465 @@ def cmd_uninstall(args) -> int:
     return 1 if failed else 0
 
 
+def _share_ok(args) -> bool:
+    """The "everyone on this repo will see this" question, unless this person turned it off."""
+    from . import team
+    if args.yes or not team.warning_on():
+        return True
+    print(team.VISIBILITY)
+    if not sys.stdin.isatty():
+        print("Nothing shared. Add --yes to share without asking.")
+        return False
+    try:
+        answer = input("Share? [y/N/a = yes, and stop asking] ").strip().lower()
+    except EOFError:
+        answer = ""
+    if answer in ("a", "always"):
+        team.set_warning(False)
+        print("Okay, sharing won't ask again. Turn the question back on in `mnemolith ui`, Settings.")
+        return True
+    if answer not in ("y", "yes"):
+        print("Nothing shared.")
+        return False
+    return True
+
+
+def _team_root():
+    from pathlib import Path
+    from . import repos
+    root = repos.git_top(Path.cwd())
+    if root is None:
+        print("This folder isn't in a git repo. Team memory lives in a repo, so your team gets it with the code.")
+    return root
+
+
+def cmd_promote(args) -> int:
+    """Shares one of your memories with the team."""
+    from . import team
+    from .server import EngineDown, project_name, run, store_down
+    root = _team_root()
+    if root is None:
+        return 1
+    if not team.exists(root):
+        print(f"{root.name} has no team memory yet. Start one with `mnemolith team init`.")
+        return 1
+    try:
+        got = run("MEM.GET", args.id)
+        if got is None:
+            print(f"No memory with id {args.id}. See yours with `mnemolith list`.")
+            return 1
+        print(f"{args.id}: \"{dict(zip(got[0::2], got[1::2]))['text']}\"")
+        if not _share_ok(args):
+            return 1
+        try:
+            mem = team.promote(root, project_name(), args.id)
+        except team.SecretFound as e:
+            print(e)
+            if not e.overridable:
+                return 1
+            if not _ask("If you're sure none of that is a secret, share it anyway?"):
+                print("Nothing shared." if sys.stdin.isatty() else
+                      "Nothing shared. Run this in a terminal to look at it and decide.")
+                return 1
+            mem = team.promote(root, project_name(), args.id, allow_soft=True)
+    except team.TeamError as e:
+        print(e)
+        return 1
+    except EngineDown as e:
+        print(store_down(e))
+        return 1
+    print(f"Shared as {mem.name}: {mem.path.relative_to(root).as_posix()}\n"
+          f"It moved out of your own memories, and {team.INDEX} was updated. Commit both when you're ready:\n"
+          f"your team gets it when they pull.")
+    return 0
+
+
+def cmd_team(args) -> int:
+    """Team memory: memories shared with everyone on a repo, as files in .mnemolith/team/."""
+    from . import team
+    root = _team_root()
+    if root is None:
+        return 1
+    where = f"{team.FOLDER}/"
+    if args.action == "init":
+        result = team.init(root)
+        n = result["count"]
+        if result["created"]:
+            print(f"Started a team memory for {root.name} in {where}\n"
+                  f"Everyone who can see this repo will be able to see what goes in it (anyone on the internet, if\n"
+                  f"the repo is public), so passwords and keys are refused.")
+        else:
+            print(f"You're now using {root.name}'s team memory ({n} {'memory' if n == 1 else 'memories'} in {where}).\n"
+                  f"Your AI tools get them in recall from their next session, next to your own memories.\n"
+                  f"This only changed your own setup: nothing in the repo was touched. `mnemolith team remove` undoes it.")
+        if result["ignored"]:
+            _say(WARN, f"{where} is ignored by this repo's .gitignore, so it won't be shared until that's changed.")
+        if result["created"]:
+            print(f"Added {team.INDEX} (the one-line list for teammates without Mnemolith) and a line in {team.ATTRIBUTES}\n"
+                  f"so two people sharing memories on different branches never get a merge conflict in it.")
+        if n == 0:
+            _offer_import(root, args)
+            _offer_starters(root, args)
+            _offer_pointer(root, args)
+            n = len(team.current(root))
+            print(f"\nNext:\n"
+                  + ("" if n else f"  - Share a memory you already have: `mnemolith promote <id>` (ids are in `mnemolith list`).\n")
+                  + f"  - Review what's in {where}, then commit it with {team.INDEX} and {team.ATTRIBUTES}\n"
+                  f"    (Mnemolith never commits for you). Teammates then run `mnemolith team init` in their copy.\n"
+                  f"  - To let your AI tool share when you ask it to, run `mnemolith team ai on`.")
+        return 0
+    if args.action == "remove":
+        if team.leave(root):
+            print(f"Stopped using {root.name}'s team memory on this computer. The files in {where} weren't touched, "
+                  f"your teammates aren't affected, and your own memories are kept. `mnemolith team init` brings it back.")
+        else:
+            print(f"You weren't using a team memory in {root.name}. Nothing changed.")
+        return 0
+    if not team.exists(root):
+        if args.action == "check" and args.markdown:
+            return 0  # nothing to check, and nothing to comment: the pull request check passes quietly
+        print(f"{root.name} has no team memory yet. `mnemolith team init` starts one.")
+        return 0 if args.action in ("status", "check") else 1
+    def named(example: str) -> bool:
+        if not args.name:
+            print(f"Which memory? Pass its name as `mnemolith team` shows it, e.g. `mnemolith team {example}`.")
+        return bool(args.name)
+
+    def where_is(mem) -> str:
+        return mem.path.relative_to(root).as_posix()
+
+    try:
+        if args.action == "confirm":
+            if not named("confirm use-pnpm"):
+                return 1
+            names = [args.name] + ([args.text] if args.text else []) + list(args.more or [])
+            for name in names:
+                print(f"Confirmed {team.confirm(root, name).name}.")
+            one = len(names) == 1
+            print(f"{'It' if one else 'They'} now record{'s' if one else ''} the current versions of what "
+                  f"{'it depends' if one else 'they depend'} on, and that you confirmed {'it' if one else 'them'}. "
+                  f"Commit the change so your team gets it too.")
+            return 0
+        if args.action == "retire":
+            if not named("retire use-pnpm"):
+                return 1
+            mem = team.retire(root, args.name)
+            print(f"Retired {mem.name}: its file now says `status: retired`, so AI tools stop using it and its history "
+                  f"stays in git. Commit that change so it's retired for your team too.")
+            return 0
+        if args.action == "edit":
+            if not named('edit use-pnpm "We use pnpm 9, not npm."'):
+                return 1
+            if not args.text:
+                mem = team.find(root, args.name)
+                print(f"Pass the new wording: `mnemolith team edit {args.name} \"...\"`." + (
+                    f"\nIt says now: \"{mem.one_line}\"\nOr edit {where_is(mem)} by hand and run `mnemolith team sync`."
+                    if mem else ""))
+                return 1
+            try:
+                mem = team.edit(root, args.name, args.text)
+            except team.SecretFound as e:
+                print(str(e).replace("Not shared", "Not changed"))
+                if not e.overridable or not _ask("If you're sure none of that is a secret, save it anyway?"):
+                    return 1
+                mem = team.edit(root, args.name, args.text, allow_soft=True)
+            print(f"Changed {mem.name}: {where_is(mem)}\nCommit it (and {team.INDEX}) so your team gets the new wording.")
+            return 0
+        if args.action == "keep":
+            if not named("keep use-pnpm mine") or args.text not in ("mine", "theirs"):
+                print("Say which version to keep: `mnemolith team keep <name> mine` or `... theirs`.")
+                return 1
+            mem = team.keep(root, args.name, args.text)
+            print(f"Kept {'your' if args.text == 'mine' else 'their'} version of {mem.name}: \"{mem.one_line[:160]}\"\n"
+                  f"Now `git add {where_is(mem)}` and commit, to finish the merge.")
+            return 0
+        if args.action == "unshare":
+            if not named("unshare use-pnpm"):
+                return 1
+            from .server import EngineDown, project_name, store_down
+            try:
+                mem, new_id = team.unshare(root, project_name(), args.name)
+            except EngineDown as e:
+                print(store_down(e))
+                return 1
+            print(f"{mem.name} is yours again as {new_id}, and the team's copy is retired (its file stays, for the history).\n"
+                  f"Commit that change so your team's AI tools stop using it.")
+            return 0
+        if args.action == "check":
+            found = team.pr_check(root, args.base or "origin/main")
+            if args.markdown:
+                print(team.pr_comment(found), end="")
+            elif not found:
+                print(f"No team memory depends on anything this branch changed since {args.base or 'origin/main'}.")
+            else:
+                print(f"{len(found)} team {'memory' if len(found) == 1 else 'memories'} may be out of date after this branch:")
+                for f in found:
+                    print(f"  {f['name']}  {f['text'][:100]}\n      {'; '.join(f['why']).replace('`', '')}")
+                print("Confirm, edit or retire each one, and commit that with your change.")
+            return 1 if found and args.strict else 0
+        if args.action == "action":
+            if team.write_workflow(root):
+                print(f"Added {team.WORKFLOW}. Once it's merged, every pull request that changes something a team memory\n"
+                      f"depends on gets a comment listing those memories. It needs Mnemolith 0.4 or newer on PyPI.")
+            else:
+                print(f"{team.WORKFLOW} is already there.")
+            return 0
+    except team.TeamError as e:
+        print(e)
+        return 1
+    if args.action == "sync":
+        changed = team.write_index(root)
+        rule = team.ensure_merge_rule(root)
+        print((f"Updated {team.INDEX}. " if changed else f"{team.INDEX} is already up to date. ")
+              + (f"Added a line to {team.ATTRIBUTES} so two people sharing memories on different branches don't get a "
+                 f"merge conflict in it. " if rule else "")
+              + ("Commit the change with your other changes." if changed or rule else ""))
+        return 0
+    if args.action == "draft":
+        return 0 if _offer_starters(root, args, asked_for=True) else 1
+    if args.action == "import":
+        return 0 if _offer_import(root, args, asked_for=True) else 1
+    if args.action == "ai":
+        if args.name not in ("on", "off"):
+            print(f"AI tools {'may' if team.ai_allowed(root) else 'may not'} share memories with {root.name}'s team. "
+                  f"Change it with `mnemolith team ai on` or `mnemolith team ai off`.")
+            return 0
+        team.allow_ai(root, args.name == "on")
+        print(f"Your AI tools may now share memories with {root.name}'s team when you ask them to. They still can't\n"
+              f"commit, and passwords and keys are still refused. Restart any AI tool that's open.\n"
+              f"Your AI tool may also ask you to approve the first share itself (Claude Code does, in auto mode):\n"
+              f"that's the tool's own check, separate from this one."
+              if args.name == "on" else
+              f"Your AI tools can no longer share memories with {root.name}'s team. You still can, with `mnemolith promote`.")
+        return 0
+    # status
+    mems = team.load(root)
+    live = team.current(root)
+    new = set(team.unseen(root)) if team.joined(root) else set()
+    print(f"Team memory for {root.name}: {len(live)} {'memory' if len(live) == 1 else 'memories'} in {where}memories/"
+          + (" (you're using it)" if team.joined(root) else "\nYou aren't using it yet: run `mnemolith team init`.")
+          + (f"\n{len(new)} new since you last looked, marked with *." if new else ""))
+    width = max((len(m.name) for m in mems), default=0)
+    flagged = []
+
+    def short(text: str, limit: int = 100) -> str:
+        return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+    for m in mems:
+        text = short(m.one_line)
+        file = m.path.relative_to(root).as_posix()
+        if team.conflicted(m):
+            both = team.sides(m)
+            if both:
+                text = "(two versions)"
+                note = (f"\n      !! two people changed this and git couldn't merge them:\n"
+                        f"         yours:  {short(both[0], 160)}\n"
+                        f"         theirs: {short(both[1], 160)}\n"
+                        f"         Keep one with `mnemolith team keep {m.name} mine` (or `theirs`), or edit {file}\n"
+                        f"         to combine them. Then `git add` it and commit. Your AI tools don't see it until then.")
+            else:
+                text = "(in conflict)"
+                note = (f"\n      !! two people changed this and git couldn't merge them. The wording is the same on both\n"
+                        f"         sides, so `mnemolith team keep {m.name} mine` settles it. Then `git add {file}` and commit.")
+        elif not m.readable:
+            note = "   !! written by a newer Mnemolith: update to read it"
+        elif m.problem:
+            text = "(can't be read)"
+            note = f"\n      !! {m.problem}. Fix {file}. Your AI tools don't see this memory until then."
+        elif m.status != "active":
+            note = f"   ({m.status})"
+        else:
+            what = team.changed(m, root)
+            moved = what and all(" moved to " in w for w in what)
+            what = [w.replace("`", "") for w in what]
+            note = (f"\n      !! {', '.join(what)}. `confirm` follows the move." if moved else
+                    f"\n      !! possibly outdated: {', '.join(what)}." if what else "")
+            if what:
+                flagged.append(m.name)
+        print(f"{'*' if m.name in new else ' '} {m.name:<{width}}  {text}{note}")
+    if flagged:
+        print(f"\nFor each flagged memory, check the code, then: `mnemolith team confirm <name>` if it's still true, "
+              f"`mnemolith team edit <name> \"...\"` to reword it, or `mnemolith team retire <name>`."
+              + (f"\nTo confirm all {len(flagged)} at once:\n  mnemolith team confirm {' '.join(flagged)}" if len(flagged) > 1 else ""))
+    try:
+        pairs = team.twins(root)
+    except Exception:
+        pairs = []  # needs the embedding model; the list above doesn't
+    if pairs:
+        print("\nThese say nearly the same thing, or disagree. Keep one of each pair (retire or edit the other):")
+        for a, b, _score in pairs[:10]:
+            print(f"  {a.name}: {short(a.one_line, 90)}\n  {b.name}: {short(b.one_line, 90)}\n")
+    if team.joined(root):
+        team.mark_seen(root)
+    print(f"\n{team.FEEDBACK}")
+    if team.index_outdated(root):
+        print(f"\n{team.INDEX} doesn't match these files any more. `mnemolith team sync` rebuilds it.")
+    return 0
+
+
+def _choose_starter_tool(tools, wanted: str = ""):
+    """Which installed AI tool drafts the starter memories: the one asked for, the only one there, or the user's
+    pick. None to skip."""
+    if wanted:
+        match = [t for t in tools if t[0] == wanted]
+        if not match:
+            from . import team
+            label = dict(team.STARTER_TOOLS_BY).get(wanted, wanted)
+            names = ", ".join(t[1] for t in tools) or "none"
+            print(f"{label} is installed but doesn't start (`{wanted} --version` fails), so it can't draft. Reinstall it, "
+                  f"or use another tool." if label in team.BROKEN else
+                  f"{label} isn't installed here (or isn't on PATH). Ready to use: {names}.")
+        return match[0] if match else None
+    if len(tools) == 1:
+        return tools[0] if _ask(f"Draft starter memories with {tools[0][1]}?") else None
+    print("Which AI tool should draft them?")
+    for n, (_key, name, _path) in enumerate(tools, 1):
+        print(f"  {n}. {name}")
+    try:
+        answer = input(f"Pick 1-{len(tools)}, or press Enter to skip: ").strip()
+    except EOFError:
+        return None
+    return tools[int(answer) - 1] if answer.isdigit() and 1 <= int(answer) <= len(tools) else None
+
+
+def _offer_starters(root, args, asked_for: bool = False) -> bool:
+    """Has the user's own AI tool (Claude Code, Codex or Cursor) read the repo and draft starter team memories.
+    Mnemolith has no AI of its own, so this is the one place it runs someone else's: only after asking, since it
+    uses their plan."""
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    from contextlib import nullcontext
+    from . import team
+    wanted = getattr(args, "with_tool", None) or ""
+    tools = team.starter_tools(include_all=bool(wanted))
+    if not tools:
+        print(("" if asked_for else "\n") + "To have an AI tool draft starter memories, install Claude Code or "
+              "Cursor's command-line agent (Codex is experimental: `--with codex`). Or with any AI tool: run `mnemolith team ai on`, restart it, and ask it to "
+              "\"draft starter team memories for this repo\".")
+        return False
+    if not asked_for:
+        if args.yes or not sys.stdin.isatty():
+            print("\n`mnemolith team draft` has your AI tool read this repo and draft starter memories for your team.")
+            return False
+        print(f"\nYour AI tool can read this repo now and draft up to {team.MAX_IMPORT} starter memories for your team:\n"
+              f"how to build and test it, its conventions, what not to change. It uses your plan with that tool once,\n"
+              f"takes a few minutes, and is kept to reading files and adding team memories. You review everything\n"
+              f"before committing.")
+    elif not wanted and len(tools) > 1 and not sys.stdin.isatty():
+        wanted = tools[0][0]
+    chosen = _choose_starter_tool(tools, wanted) if (wanted or sys.stdin.isatty()) else tools[0]
+    if not chosen:
+        print("Skipped. `mnemolith team draft` does this later.")
+        return False
+    key, name, binary = chosen
+    before = {m.name for m in team.load(root)}
+    state = team.git_state(root)
+    print(f"{name} is reading the repo. This usually takes a few minutes (Ctrl+C stops it and keeps what it wrote)...")
+    problem = ""
+    said = ""
+    try:
+        with tempfile.TemporaryDirectory() as tmp, (team.CursorServer(root) if key == "cursor" else nullcontext()):
+            cmd = team.starter_command(root, key, binary, Path(tmp) / "mcp.json")
+            try:
+                done = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=1500,
+                                      stdin=subprocess.DEVNULL)
+                said = (done.stdout + "\n" + done.stderr).strip()
+                problem = "" if done.returncode == 0 else said[-400:]
+            except KeyboardInterrupt:
+                problem = "Stopped."
+            except subprocess.TimeoutExpired:
+                problem = "It took too long, so it was stopped."
+            except OSError as e:
+                problem = str(e)
+    except team.TeamError as e:
+        print(e)
+        return False
+    team.write_index(root)
+    made = [m for m in team.load(root) if m.name not in before]
+    if problem:
+        low = problem.lower()
+        if "limit" in low and ("hit" in low or "reset" in low or "usage" in low):
+            print(f"You've hit your {name} usage limit, so it stopped. Run `mnemolith team draft` once it resets.")
+        elif ("auth" in low or "log in" in low or "login" in low or "sign in" in low) and "warning:" not in low[:20]:
+            print(f"{name} doesn't seem to be signed in. Sign in to it, then run `mnemolith team draft --with {key}`.")
+        else:
+            first = next((line for line in problem.splitlines() if line.strip() and not line.startswith("Warning:")),
+                         problem.splitlines()[0] if problem else "")
+            print(f"{name} didn't finish: {first[:300]}\n`mnemolith team draft --with {key}` tries again.")
+    stray = team.outside_changes(root, state)
+    if stray:
+        print(f"\n!! {name} changed files it shouldn't have: {', '.join(stray[:8])}" + (" and more" if len(stray) > 8 else "")
+              + "\n   Look at them with `git diff` and undo what you don't want (`git checkout -- <file>`).")
+    if not made:
+        print("No starter memories were added.")
+        if not problem:
+            tail = [line for line in said.splitlines() if line.strip()][-15:]
+            print(f"{name} finished without sharing any. The end of what it said:\n" +
+                  ("\n".join("  | " + line[:200] for line in tail) if tail else "  (nothing)"))
+        return False
+    print(f"{name} drafted {len(made)} starter {'memory' if len(made) == 1 else 'memories'}:")
+    for m in made:
+        text = m.one_line if len(m.one_line) <= 110 else m.one_line[:109].rstrip() + "…"
+        print(f"  - {text}" + (f"   [{', '.join(p for p, _ in m.files)}]" if m.files else ""))
+    print(f"They're files in {team.FOLDER}/memories/. Read them, edit or delete any that are wrong, then commit.")
+    return True
+
+
+def _offer_pointer(root, args) -> bool:
+    """AI tools don't read mnemolith.md by themselves; they read CLAUDE.md and AGENTS.md. Offers one line there."""
+    from . import team
+    files = team.pointer_files(root)
+    if not files or args.yes or not sys.stdin.isatty():
+        return False
+    names = " and ".join(p.name for p in files)
+    print(f"\nTeammates' AI tools without Mnemolith don't read {team.INDEX} on their own, but they do read {names}.")
+    if not _ask(f"Add one line to {names} pointing them at {team.INDEX}?"):
+        return False
+    team.add_pointer(root)
+    print(f"Added. Commit {names} with the rest.")
+    return True
+
+
+def _offer_import(root, args, asked_for: bool = False) -> bool:
+    """Turns the notes a repo already has (CLAUDE.md, AGENTS.md, Cursor rules) into team memories, after asking."""
+    from . import team
+    found = team.notes_to_import(root)
+    notes = found["notes"]
+    if not notes:
+        if asked_for:
+            print("No notes to import: CLAUDE.md, AGENTS.md and Cursor rules have nothing the team doesn't already have.")
+        return False
+    print(f"\nThis repo's notes files have {len(notes)} {'note' if len(notes) == 1 else 'notes'} that could become "
+          f"team memories:")
+    for n in notes:
+        print(f"  - {n['text'] if len(n['text']) <= 110 else n['text'][:109].rstrip() + '…'}"
+              + (f"   [{', '.join(n['files'])}]" if n["files"] else ""))
+    if found["more"]:
+        print(f"  ({found['more']} more were left out: {team.MAX_IMPORT} is plenty to review at once. Run "
+              f"`mnemolith team import` again later for the rest.)")
+    if found["skipped_secrets"]:
+        print(f"  ({found['skipped_secrets']} left out because they look like they contain a password or key.)")
+    one = len(notes) == 1
+    if not args.yes and not _ask(f"Add {'it as a team memory' if one else 'them as team memories'}? Everyone with "
+                                 f"access to this repo will see {'it' if one else 'them'}."):
+        print("Nothing added." + ("" if sys.stdin.isatty() else " Add --yes to add without asking.")
+              + ("" if asked_for else " `mnemolith team import` does this later."))
+        return False
+    made = team.import_notes(root)
+    print(f"Added {len(made)} team {'memory' if len(made) == 1 else 'memories'} to {team.FOLDER}/memories/. "
+          f"Review {'it' if len(made) == 1 else 'them'} like any other change before you commit.")
+    return True
+
+
 def cmd_serve(args) -> int:
+    import os
+    if getattr(args, "repo", None):
+        os.environ["MNEMOLITH_REPO"] = args.repo
+    if getattr(args, "starter", None):
+        from . import team
+        os.environ[team.STARTER_ENV] = str(args.starter)  # a capped run that drafts starter team memories
+        os.environ.setdefault("MNEMOLITH_SOURCE", "starter")
     from .server import serve
     serve()
     return 0
@@ -594,7 +1063,7 @@ def main(argv=None) -> None:
     p.add_argument("path", nargs="?", default=".")
     p.set_defaults(func=cmd_add)
     p = sub.add_parser("remove", help="remove a project, like Remove project in the dashboard (default: this folder's)")
-    p.add_argument("name", nargs="?", help="the project's name, as the dashboard shows it")
+    p.add_argument("name", nargs="?", help="the project's name, as the dashboard shows it, or its folder")
     p.add_argument("--yes", "-y", action="store_true", help="don't ask for confirmation")
     p.set_defaults(func=cmd_remove)
     p = sub.add_parser("import", help="turn notes in CLAUDE.md, AGENTS.md, and Cursor rules into memories")
@@ -605,6 +1074,31 @@ def main(argv=None) -> None:
     p.add_argument("--project", "-p", action="append", metavar="NAME", help="only this project (repeatable; default: all)")
     p.add_argument("--output", "-o", metavar="FILE", help="where to write it (default: mnemolith-<date>.json here; - for stdout)")
     p.set_defaults(func=cmd_export)
+    p = sub.add_parser("team", help="team memory: memories shared with everyone on a repo, as files in the repo")
+    p.add_argument("action", nargs="?", default="status",
+                   choices=["init", "status", "confirm", "retire", "edit", "keep", "unshare", "sync", "import",
+                            "draft", "check", "action", "ai", "remove"],
+                   help="init: start one here, or use the one that's here. confirm/retire <name>: a memory is still "
+                        "true, or no longer is. sync: rebuild mnemolith.md. import: add notes from CLAUDE.md and "
+                        "AGENTS.md. draft [--with claude|codex|cursor]: have your AI tool read the repo and draft starter memories. edit <name> \"new "
+                        "wording\". keep <name> mine|theirs: settle a merge conflict. unshare <name>: take a memory back. "
+                        "check: which memories this branch may have made out of date. action: add the GitHub workflow "
+                        "that runs check on pull requests. ai on|off: let your AI tools share when you ask. remove: "
+                        "stop using it here")
+    p.add_argument("name", nargs="?", help="the memory's name, as `mnemolith team` shows it. With ai: on or off")
+    p.add_argument("text", nargs="?", help="with edit: the new wording. With keep: mine or theirs")
+    p.add_argument("more", nargs="*", help="with confirm: more names, to confirm several at once")
+    p.add_argument("--base", help="with check: the branch to compare with (default origin/main)")
+    p.add_argument("--markdown", action="store_true", help="with check: print a pull request comment, or nothing")
+    p.add_argument("--strict", action="store_true", help="with check: exit with an error if any memory is affected")
+    p.add_argument("--with", dest="with_tool", choices=["claude", "codex", "cursor"],
+                   help="with draft: which AI tool drafts the starter memories")
+    p.add_argument("--yes", "-y", action="store_true", help="don't ask for confirmation")
+    p.set_defaults(func=cmd_team)
+    p = sub.add_parser("promote", help="share one of your memories with your team (it moves to the repo's team memory)")
+    p.add_argument("id", help="the memory's id, e.g. m42 (see `mnemolith list`)")
+    p.add_argument("--yes", "-y", action="store_true", help="don't ask before sharing")
+    p.set_defaults(func=cmd_promote)
     p = sub.add_parser("uninstall", help="disconnect your AI tools, stop the engine, and optionally delete memories")
     p.add_argument("--delete-data", action="store_true", help="also delete all memories, without asking")
     p.set_defaults(func=cmd_uninstall)
@@ -612,7 +1106,10 @@ def main(argv=None) -> None:
     p.add_argument("--port", type=int, help="port for the dashboard (default 7381)")
     p.add_argument("--no-open", action="store_true", help="don't open a browser, just print the link")
     p.set_defaults(func=lambda a: __import__("mnemolith.ui", fromlist=["serve"]).serve(a.port, not a.no_open))
-    sub.add_parser("serve", help="run the MCP server (your AI tool runs this for you)").set_defaults(func=cmd_serve)
+    p = sub.add_parser("serve", help="run the MCP server (your AI tool runs this for you)")
+    p.add_argument("--repo", help=argparse.SUPPRESS)
+    p.add_argument("--starter", type=int, help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_serve)
 
     args = parser.parse_args(argv)
     unknown = [t for t in getattr(args, "tools", None) or [] if t not in connect.TOOLS]
@@ -623,6 +1120,14 @@ def main(argv=None) -> None:
         parser.print_help()
         print("\nNew here? Run `mnemolith setup`.")
         sys.exit(0)
+    if args.command != "serve":  # serve runs inside a drafting run, which is still using Cursor's config
+        try:
+            from . import team
+            if team.restore_cursor_config():
+                print("Put Cursor's settings back the way they were before an interrupted `mnemolith team draft`.\n",
+                      file=sys.stderr)
+        except Exception:
+            pass
     try:
         sys.exit(args.func(args))
     except KeyboardInterrupt:
