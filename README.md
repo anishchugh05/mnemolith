@@ -19,8 +19,8 @@ nothing checks whether those memories are still correct. Mnemolith gives every t
 it honest:
 
 - **Memories go stale when the code changes.** Each memory is linked to the files it's about, with a snapshot of their
-  git content hash. When `docker-compose.yml` changes, the memory about it is retired automatically instead of being
-  fed to your AI forever.
+  git content hash. When `docker-compose.yml` changes, the memory about it is set aside automatically and flagged for
+  you to confirm or fix, instead of being fed to your AI forever.
 - **Contradictions get replaced, not hoarded.** "We migrated to MySQL" retires "we use Postgres" instead of sitting
   next to it and confusing the model. Near-identical repeats are merged.
 - **Every memory can explain itself.** Which tool and session saved it, which file versions it was based on, and every
@@ -188,8 +188,12 @@ nothing is installed system-wide, and `mnemolith uninstall` removes it.
 Already keep notes for your AI in `CLAUDE.md`, `AGENTS.md`, or Cursor rules? Run `mnemolith import` in the repo
 (or use **Import notes** in the dashboard) to turn them into memories, linked to the files they mention.
 
-Memories are kept per project (the git repo's folder name), so projects never mix. Everything stays on your machine:
-the engine only accepts connections from it, and your memories live in `~/.mnemolith`.
+Memories are kept per project, named after the git repo's folder, so different projects don't mix. For now, two repos
+with the same folder name (say, two called `backend`) share one memory. Everything stays on your machine: the engine
+only accepts connections from it, and your memories live in `~/.mnemolith`.
+
+The engine has no password, so any program running on your computer can read or change memories. Your AI tools treat
+memories as project instructions, so review new ones in `mnemolith ui` the way you'd review a change to `CLAUDE.md`.
 
 | Command | What it does |
 |---|---|
