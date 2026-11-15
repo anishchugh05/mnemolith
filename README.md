@@ -614,7 +614,7 @@ Bump every version number (`pyproject.toml`, `mnemolith/__init__.py`, `server.js
 `python3 scripts/bump_version.py 0.4.0`, check `git diff`, commit, then:
 
 ```sh
-git tag v0.3.5 && git push --tags
+git tag v0.4.0 && git push --tags
 ```
 
 Once the release is on PyPI, point the Claude Code plugin at it: `python3 scripts/bump_version.py 0.4.0 --plugin`,
