@@ -123,7 +123,10 @@ def claude_instructions_file() -> Path:
 # ---------- Claude Code ----------
 
 def _claude(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([shutil.which("claude") or "claude", *args], capture_output=True, text=True, timeout=60)
+    # stdin closed: from the one-line installer, stdin is the terminal reopened (`</dev/tty`), and Claude Code's
+    # runtime crashes on that ("EINVAL: invalid argument, kqueue") before doing anything.
+    return subprocess.run([shutil.which("claude") or "claude", *args], capture_output=True, text=True, timeout=60,
+                          stdin=subprocess.DEVNULL)
 
 
 def connect_claude_code() -> Tuple[bool, str]:

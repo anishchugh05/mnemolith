@@ -40,3 +40,13 @@ def test_the_pull_request_check_passes_quietly_without_a_team_memory(tmp_path, m
     subprocess.run(["git", "init", "-q"], check=True)
     assert run("team", "check", "--base", "HEAD", "--markdown") == 0
     assert capsys.readouterr().out == ""
+
+
+def test_claude_codes_command_line_never_gets_the_terminal(monkeypatch):
+    # From the one-line installer, stdin is the reopened terminal, which crashes Claude Code's runtime.
+    import subprocess
+    from mnemolith import connect
+    seen = {}
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: seen.update(kw) or subprocess.CompletedProcess(cmd, 0, "", ""))
+    connect._claude("mcp", "list")
+    assert seen.get("stdin") is subprocess.DEVNULL

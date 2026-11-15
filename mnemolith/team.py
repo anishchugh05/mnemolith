@@ -1234,7 +1234,7 @@ def _cursor_binary() -> Optional[str]:
     if not found:
         return None
     try:
-        out = subprocess.run([found, "--help"], capture_output=True, text=True, timeout=10)
+        out = subprocess.run([found, "--help"], capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return None
     return found if "cursor" in (out.stdout + out.stderr).lower() else None
