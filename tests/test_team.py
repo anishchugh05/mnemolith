@@ -585,6 +585,15 @@ def test_taking_a_memory_back_retires_the_teams_copy(repo, monkeypatch):
     assert back.status == "retired" and team.current(repo) == [] and back.path.is_file()
 
 
+def test_a_team_memory_too_long_for_a_personal_one_isnt_taken_back(repo, monkeypatch):
+    team.init(repo)
+    mem = team.add(repo, "Deploys go out on Tuesdays after the freeze lifts. " * 50)  # 2,549 characters
+    monkeypatch.setattr(server, "add_memory", lambda *a, **k: pytest.fail("nothing should be saved"))
+    with pytest.raises(team.TeamError, match="too long for one personal memory"):
+        team.unshare(repo, "shop", mem.name)
+    assert [m.name for m in team.current(repo)] == [mem.name]  # still the team's, untouched
+
+
 def test_new_arrivals_are_marked_until_looked_at_and_your_own_never_are(repo):
     team.init(repo)
     team.add(repo, "Deploys go out on Tuesdays.")  # mine: not news to me
