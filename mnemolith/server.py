@@ -316,7 +316,7 @@ def check_staleness(project: Optional[str] = None, root: Optional[Path] = None) 
         if changed:
             what = ", ".join(f"{p} {'was deleted' if current.get(p) == 'missing' else 'changed'}" for p in changed)
             run("MEM.STATUS", mid, "stale", "REASON", f"{what} since this was saved")
-            newly_stale.append(f"[{mid}] \"{text}\" is now marked outdated: {what}.")
+            newly_stale.append(f"[{mid}] \"{_shown(text)}\" is now marked outdated: {what}.")
     return newly_stale
 
 
@@ -377,7 +377,7 @@ def past_versions(project: str, vector: List[str], limit: int = 3) -> List[str]:
                 label = f"possibly outdated: {reason}; check the code before relying on it"
             else:
                 label = f"no longer true, retired: {reason}" if reason else "no longer true, retired"
-            lines.append(f"[{mid}] \"{text}\" ({label})")
+            lines.append(f"[{mid}] \"{_shown(text)}\" ({label})")
     except Exception:
         return []
     return lines
@@ -398,6 +398,18 @@ def core_tool():
 # synced into AGENTS.md / CLAUDE.md, so one huge one would crowd out everything else; and the embedding model only
 # reads the start of a long text, so most of it would never be found anyway.
 MAX_FACT = 2000
+
+
+def _shown(text: str, in_file: bool = False) -> str:
+    """A memory as AI tools see it, or as AGENTS.md / CLAUDE.md list it: whole up to MAX_FACT characters, cut visibly
+    beyond. New memories are never that long (remember refuses them); this covers ones saved before the limit, or
+    straight into the engine. explain_memory, the dashboard and the terminal still show a memory whole."""
+    flat = " ".join(text.split())
+    if len(flat) <= MAX_FACT:
+        return text
+    where = "the full memory is in Mnemolith" if in_file else \
+        f"this memory is {len(flat):,} characters; explain_memory shows all of it"
+    return flat[:MAX_FACT].rstrip() + f"… (cut: {where})"
 
 
 @core_tool()
@@ -427,7 +439,7 @@ def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "", n
             close = [(mid, float(sc), text) for mid, sc, text in hits
                      if config.SAME_FACT_SIMILARITY <= float(sc) < 0.97]
             if close:
-                listed = "\n".join(f"[{mid}] (similarity {sc:.2f}) {text}" for mid, sc, text in close)
+                listed = "\n".join(f"[{mid}] (similarity {sc:.2f}) {_shown(text)}" for mid, sc, text in close)
                 return ("Not saved: this looks like something already known:\n" + listed +
                         f"\nIf that covers it, you're done. If yours makes it untrue, call remember again with "
                         f"replaces=\"{close[0][0]}\". If it's a separate fact, call remember again with new=True.")
@@ -444,7 +456,7 @@ def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "", n
             return reply
         if outcome == "possible_conflict":
             old = dict(zip(*[iter(run("MEM.GET", related))] * 2))
-            reply += (f" It is very similar to {related}: \"{old.get('text')}\" and may contradict it. "
+            reply += (f" It is very similar to {related}: \"{_shown(old.get('text') or '')}\" and may contradict it. "
                       f"If unsure, ask the user, then call resolve_conflict.")
         # Similarity can't tell "contradicts" from "related" (a real contradiction can score low), so show
         # the closest existing memories and let the AI judge whether the new fact replaces any of them.
@@ -453,7 +465,7 @@ def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "", n
                   if mid not in (mem_id, related) and float(sc) >= config.RELATED_SIMILARITY]
         if others:
             reply += "\nRelated existing memories:\n" + "\n".join(
-                f"[{mid}] (similarity {sc:.2f}) {text}" for mid, sc, text in others)
+                f"[{mid}] (similarity {sc:.2f}) {_shown(text)}" for mid, sc, text in others)
             reply += (f"\nIf {mem_id} makes any of these no longer true, call replace_memory(old_id, \"{mem_id}\"). "
                       f"Otherwise do nothing.")
         return reply
@@ -473,7 +485,7 @@ def _setup_memories(project: str, already: set, limit: int = 2) -> List[str]:
         rows = run("MEM.LIST", project)
     except EngineDown:
         return []
-    found = [f"[{mid}] {text}" for mid, _status, _files, text in rows
+    found = [f"[{mid}] {_shown(text)}" for mid, _status, _files, text in rows
              if mid not in already and _SETUP.search(text or "")][:limit]
     if len(found) < limit:
         try:
@@ -574,7 +586,7 @@ def recall(query: str, limit: int = 5) -> str:
         hits = run("MEM.SEARCH", project_name(), max(1, min(limit, 20)), "VECTOR", *vector)
     except EngineDown as e:
         return store_down(e)
-    lines = [f"[{mid}] (similarity {float(score):.2f}) {text}" for mid, score, text in hits]
+    lines = [f"[{mid}] (similarity {float(score):.2f}) {_shown(text)}" for mid, score, text in hits]
     shared = _team_hits(vector, max(1, min(limit, 20)), config.RELATED_SIMILARITY,
                         [(mid, text) for mid, _score, text in hits])
     if not lines and not shared:
@@ -675,7 +687,7 @@ def replace_memory(old_id: str, new_id: str) -> str:
         if new is None:
             return f"No memory with id {new_id}."
         new_text = dict(zip(new[0::2], new[1::2]))["text"]
-        run("MEM.STATUS", old_id, "superseded", "REASON", f"replaced by {new_id}: \"{new_text}\"")
+        run("MEM.STATUS", old_id, "superseded", "REASON", f"replaced by {new_id}: \"{_shown(new_text)}\"")
     except EngineDown as e:
         return store_down(e)
     except redis.ResponseError as e:
@@ -741,7 +753,8 @@ def memory_block() -> str:
              "## Project memory (managed by Mnemolith)",
              "<!-- Generated by Mnemolith; edits inside this section are overwritten on the next sync. -->",
              ""]
-    lines += [f"- {_one_line(text)} ({mid})" for mid, _status, _files, text in rows] or ["_No memories yet._"]
+    lines += [f"- {_one_line(_shown(text, in_file=True))} ({mid})" for mid, _status, _files, text in rows] \
+        or ["_No memories yet._"]
     lines.append(SYNC_END)
     return "\n".join(lines)
 
@@ -797,7 +810,7 @@ def list_conflicts() -> str:
         return store_down(e)
     if not rows:
         return "No conflicts waiting for review."
-    return "\n".join(f"{new_id} \"{new_text}\" may contradict {old_id} \"{old_text}\" (similarity {sim})"
+    return "\n".join(f"{new_id} \"{_shown(new_text)}\" may contradict {old_id} \"{_shown(old_text)}\" (similarity {sim})"
                      for new_id, new_text, old_id, old_text, sim in rows)
 
 
