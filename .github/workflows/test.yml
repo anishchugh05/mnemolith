@@ -1,0 +1,33 @@
+# Runs the tests on every pull request and on every push to main, so a change shows a pass or a fail before
+# it's merged. Read-only: it can't push, comment or publish anything.
+#
+# Actions are pinned to exact commits (the tag is in the comment), so a moved tag can't change what runs.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # the oldest Python Mnemolith supports, and the one the installer uses
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+
+      - name: Run the tests
+        # --frozen: exactly the versions in uv.lock. pytest isn't a dependency of the package, so it's added here.
+        run: uv run --frozen --python ${{ matrix.python }} --with pytest python -m pytest tests -q
