@@ -901,6 +901,11 @@ def unshare(root: Path, project: str, name: str) -> Tuple[Memory, str]:
     mem = _need(root, name)
     if mem.status != "active":
         raise TeamError(f"{mem.name} is already {mem.status}.")
+    size = len(" ".join(mem.text.split()))  # a personal memory has the same limit as one saved with remember
+    if size > server.MAX_FACT:
+        raise TeamError(f"{mem.name} is {size:,} characters, too long for one personal memory (the limit is "
+                        f"{server.MAX_FACT:,}). Nothing changed. Shorten it first with `mnemolith team edit {mem.name} "
+                        f"\"...\"`, then take it back.")
     paths = [split_link(root, link)[0] for link, _ in mem.files]
     paths = [p for p in dict.fromkeys(paths) if (root / p).is_file()]
     new_id, _outcome, _related = server.add_memory(project, mem.text.strip(), server.link_files(paths, root) if paths else "",
