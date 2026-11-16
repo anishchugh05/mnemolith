@@ -40,7 +40,16 @@ from . import config, server
 FORMAT = 1  # the `mnemolith:` number in each file; raised if the format ever changes incompatibly
 FOLDER = ".mnemolith/team"
 PREFIX = "team:"  # how a team memory's id looks to the AI: team:<file name without .md>
-MAX_TEXT = 1000  # characters of a memory shown in recall, the same limit import uses for a note
+MAX_TEXT = 2000  # the most one team memory may hold, the same limit as a personal memory (server.MAX_FACT)
+
+
+def _too_long(text: str) -> Optional[str]:
+    """Why a memory's wording is too long, or None. Counted the way the dashboard counts: runs of spaces as one."""
+    size = len(" ".join(text.split()))
+    if size <= MAX_TEXT:
+        return None
+    return (f"That's {size:,} characters, too long for one memory (the limit is {MAX_TEXT:,}). Split it into separate "
+            f"facts, or keep it short and link the file that holds the details.")
 MAX_CACHED = 3000
 NAME = re.compile(r"^[\w][\w.-]*$")
 
@@ -97,7 +106,10 @@ class Memory:
 
     @property
     def one_line(self) -> str:
-        return " ".join(self.text.split())[:MAX_TEXT]
+        """The memory on one line, as AI tools and the dashboard see it. A file written by hand past the limit is
+        cut visibly, never silently."""
+        flat = " ".join(self.text.split())
+        return flat if len(flat) <= MAX_TEXT else flat[:MAX_TEXT].rstrip() + f"… (cut: the full text is in {self.name}.md)"
 
 
 # ---------- the files ----------
@@ -458,6 +470,8 @@ def edit(root: Path, name: str, text: str, allow_soft: bool = False, by: str = "
     text = text.strip()
     if not text:
         raise TeamError("The new wording is empty. To stop using a memory, retire it instead.")
+    if _too_long(text):
+        raise TeamError("Not changed. " + _too_long(text))
     findings = scan_secrets(text)
     if findings and (not allow_soft or any(f["hard"] for f in findings)):
         raise SecretFound(findings)
@@ -830,6 +844,8 @@ def add(root: Path, text: str, files: Optional[List[str]] = None, allow_soft: bo
     text = text.strip()
     if not text:
         raise TeamError("There's nothing to share: the memory is empty.")
+    if _too_long(text):
+        raise TeamError("Not shared. " + _too_long(text))
     if not exists(root):
         raise TeamError(f"This repo has no team memory yet. Start one with `mnemolith team init`.")
     from . import portability
@@ -1496,6 +1512,43 @@ def pr_check(root: Path, base: str) -> List[dict]:
     return found
 
 
+def pr_description(root: Path, base: str = "") -> str:
+    """A description for a pull request that adds team memories, for the person opening it to paste: what the files
+    are, what to review, and how teammates start using it. Lists the memories this branch adds or changes compared
+    with base (origin/main, or origin/master), or all of them when the branch can't be compared."""
+    mems = current(root)
+    start = ""
+    for ref in ([base] if base else ["origin/main", "origin/master"]):
+        start = (_git(root, "merge-base", ref, "HEAD") or "").strip()
+        if start:
+            break
+    new_here = start and _git(root, "cat-file", "-e", f"{start}:{FOLDER}/README.md") is None
+    if start:
+        touched = {f for f in (_git(root, "diff", "--name-only", start, "--", FOLDER) or "").splitlines() if f}
+        touched |= {f for f in (_git(root, "ls-files", "--others", "--exclude-standard", "--", FOLDER) or "").splitlines() if f}
+        mems = [m for m in mems if m.path.relative_to(root).as_posix() in touched]
+    n = len(mems)
+    listed = "\n".join(f"- {m.one_line if len(m.one_line) <= 120 else m.one_line[:119].rstrip() + '…'}" for m in mems[:10])
+    listed += f"\n- …and {n - 10} more" if n > 10 else ""
+    what = (f"This sets up team memory for this repo with {n} {'memory' if n == 1 else 'memories'}" if new_here or not start
+            else f"This adds or changes {n} team {'memory' if n == 1 else 'memories'}")
+    return f"""## Team memory for our AI coding tools
+
+{what} for [Mnemolith](https://mnemolith.dev/team.html): things our AI tools (Claude Code, Cursor, Codex) should know \
+about this repo, one small file each in `.mnemolith/team/memories/`.
+
+- Each one is linked to the code it describes, and flagged for everyone when that code changes.
+- Changes to team memory come through pull requests like this one, so we review them like code.
+- `mnemolith.md` lists them one line each, for anyone not using Mnemolith.
+
+**What to review:** each memory is true, worth every teammate's AI knowing, and has nothing private in it.
+{(chr(10) + listed + chr(10)) if n else ""}
+**To use it after this merges:** install Mnemolith (`curl -fsSL https://mnemolith.dev/install.sh | sh`, or \
+[other ways](https://mnemolith.dev/install.html)), then run `mnemolith team init` in your copy of the repo. \
+Nothing changes for anyone who doesn't.
+"""
+
+
 COMMENT_MARK = "<!-- mnemolith-team-check -->"  # how the workflow finds its own comment to update it
 
 
@@ -1508,9 +1561,16 @@ def pr_comment(found: List[dict]) -> str:
              "Your team's AI tools rely on these. Each depends on something this pull request changes, and "
              "wasn't updated with it:", ""]
     for f in found:
-        lines += [f"- **{f['text']}**", f"  {'; '.join(f['why'])}. Memory: `{f['path']}`"]
-    lines += ["", "If one is still true, run `mnemolith team confirm <name>` and commit the change. If it isn't, "
-              "`mnemolith team edit <name> \"...\"` or `mnemolith team retire <name>`.", "",
+        lines += [f"- **{f['text']}**", f"  {'; '.join(f['why'])}. Memory: `{f['name']}`"]
+    first = found[0]["name"]
+    commands = [(f"mnemolith team confirm {first}", "still true"), (f"mnemolith team edit {first} \"...\"", "reword it"),
+                (f"mnemolith team retire {first}", "no longer true")]
+    wide = max(len(c) for c, _ in commands)
+    lines += ["", "Check the code, then in this branch:", "", "```sh",
+              *(f"{c.ljust(wide)}  # {why}" for c, why in commands), "```"]
+    if n > 1:
+        lines += ["", "For the others, use their names in place of that one."]
+    lines += ["", "Commit the change and push; this comment updates.", "",
               "<sub>Checked by [Mnemolith](https://mnemolith.dev/team.html) team memory.</sub>"]
     return "\n".join(lines) + "\n"
 

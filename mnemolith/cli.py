@@ -652,6 +652,8 @@ def cmd_team(args) -> int:
                   + ("" if n else f"  - Share a memory you already have: `mnemolith promote <id>` (ids are in `mnemolith list`).\n")
                   + f"  - Review what's in {where}, then commit it with {team.INDEX} and {team.ATTRIBUTES}\n"
                   f"    (Mnemolith never commits for you). Teammates then run `mnemolith team init` in their copy.\n"
+                  f"  - Opening a pull request? `mnemolith team pr` prints a description for it that explains\n"
+                  f"    team memory to reviewers and how they start using it.\n"
                   f"  - To let your AI tool share when you ask it to, run `mnemolith team ai on`.")
         return 0
     if args.action == "remove":
@@ -675,6 +677,9 @@ def cmd_team(args) -> int:
         return mem.path.relative_to(root).as_posix()
 
     try:
+        if args.action == "pr":
+            print(team.pr_description(root, args.base or ""))
+            return 0
         if args.action == "confirm":
             if not named("confirm use-pnpm"):
                 return 1
@@ -1077,18 +1082,19 @@ def main(argv=None) -> None:
     p = sub.add_parser("team", help="team memory: memories shared with everyone on a repo, as files in the repo")
     p.add_argument("action", nargs="?", default="status",
                    choices=["init", "status", "confirm", "retire", "edit", "keep", "unshare", "sync", "import",
-                            "draft", "check", "action", "ai", "remove"],
+                            "draft", "check", "action", "pr", "ai", "remove"],
                    help="init: start one here, or use the one that's here. confirm/retire <name>: a memory is still "
                         "true, or no longer is. sync: rebuild mnemolith.md. import: add notes from CLAUDE.md and "
                         "AGENTS.md. draft [--with claude|codex|cursor]: have your AI tool read the repo and draft starter memories. edit <name> \"new "
                         "wording\". keep <name> mine|theirs: settle a merge conflict. unshare <name>: take a memory back. "
                         "check: which memories this branch may have made out of date. action: add the GitHub workflow "
-                        "that runs check on pull requests. ai on|off: let your AI tools share when you ask. remove: "
+                        "that runs check on pull requests. pr: a description for the pull request that adds team memories. "
+                        "ai on|off: let your AI tools share when you ask. remove: "
                         "stop using it here")
     p.add_argument("name", nargs="?", help="the memory's name, as `mnemolith team` shows it. With ai: on or off")
     p.add_argument("text", nargs="?", help="with edit: the new wording. With keep: mine or theirs")
     p.add_argument("more", nargs="*", help="with confirm: more names, to confirm several at once")
-    p.add_argument("--base", help="with check: the branch to compare with (default origin/main)")
+    p.add_argument("--base", help="with check and pr: the branch to compare with (default origin/main)")
     p.add_argument("--markdown", action="store_true", help="with check: print a pull request comment, or nothing")
     p.add_argument("--strict", action="store_true", help="with check: exit with an error if any memory is affected")
     p.add_argument("--with", dest="with_tool", choices=["claude", "codex", "cursor"],

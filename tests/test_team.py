@@ -588,7 +588,9 @@ def test_taking_a_memory_back_retires_the_teams_copy(repo, monkeypatch):
 
 def test_a_team_memory_too_long_for_a_personal_one_isnt_taken_back(repo, monkeypatch):
     team.init(repo)
-    mem = team.add(repo, "Deploys go out on Tuesdays after the freeze lifts. " * 50)  # 2,549 characters
+    mem = team.add(repo, "Deploys go out on Tuesdays after the freeze lifts.")
+    long = "Deploys go out on Tuesdays after the freeze lifts. " * 50  # 2,549 characters, written into the file by hand
+    mem.path.write_text(mem.path.read_text().replace("Deploys go out on Tuesdays after the freeze lifts.", long))
     monkeypatch.setattr(server, "add_memory", lambda *a, **k: pytest.fail("nothing should be saved"))
     with pytest.raises(team.TeamError, match="too long for one personal memory"):
         team.unshare(repo, "shop", mem.name)
@@ -952,3 +954,47 @@ def test_card_numbers_are_still_caught(text):
 ])
 def test_long_numbers_that_arent_cards_are_left_alone(text):
     assert not any(f["what"] == "a card number" for f in team.scan_secrets(text))
+
+
+def test_the_pull_request_comment_gives_commands_with_the_real_name(repo):
+    found = [{"name": "payments-retry", "text": "Payments retry 18 times.", "path": "p", "why": ["`config.py` changed"]},
+             {"name": "gateway", "text": "Gateway v1.", "path": "q", "why": ["`config.py` changed"]}]
+    text = team.pr_comment(found)
+    assert "mnemolith team confirm payments-retry" in text and "<name>" not in text
+    assert "Memory: `gateway`" in text and "For the others" in text
+
+
+def test_team_memory_has_the_same_length_limit_as_a_personal_one(repo):
+    from mnemolith import server
+    team.init(repo)
+    assert team.MAX_TEXT == server.MAX_FACT
+    with pytest.raises(team.TeamError, match="too long for one memory"):
+        team.add(repo, "word " * 500, ["tax.py"])  # 2,499 characters
+    mem = team.add(repo, "The tax rate is 8 percent.", ["tax.py"])
+    with pytest.raises(team.TeamError, match="Not changed"):
+        team.edit(repo, mem.name, "word " * 500)
+    assert team.find(repo, mem.name).text.strip() == "The tax rate is 8 percent."
+
+
+def test_a_hand_written_long_team_memory_is_cut_visibly(repo):
+    team.init(repo)
+    mem = team.add(repo, "The tax rate is 8 percent.", ["tax.py"])
+    raw = mem.path.read_text()
+    mem.path.write_text(raw.replace("The tax rate is 8 percent.", "x " * 1500))  # someone edited the file by hand
+    shown = team.find(repo, mem.name).one_line
+    assert len(shown) < 2100 and shown.endswith(f"(cut: the full text is in {mem.name}.md)")
+
+
+def test_the_pull_request_description_sets_up_or_lists_what_this_branch_adds(repo):
+    git(repo, "init", "-q", "-b", "main")
+    (repo / "tax.py").write_text("RATE = 8\n")
+    team.init(repo)
+    team.add(repo, "The tax rate is 8 percent.", ["tax.py"])
+    first = team.pr_description(repo)  # nothing to compare with: everything is new
+    assert "sets up team memory for this repo with 1 memory" in first and "The tax rate is 8 percent." in first
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "team memory")
+    git(repo, "checkout", "-qb", "more")
+    team.add(repo, "Rounding is half-up.", ["tax.py"])
+    later = team.pr_description(repo, "main")
+    assert "adds or changes 1 team memory" in later and "Rounding is half-up." in later
+    assert "The tax rate is 8 percent." not in later and "mnemolith team init" in later

@@ -3,7 +3,7 @@
 [project]
 name = "mnemolith-plugin"
 version = "0.4.2"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = ["mnemolith==0.4.2"]
 
 [tool.uv]

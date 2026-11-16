@@ -904,7 +904,7 @@ def share_with_team(memory_id: str = "", fact: str = "", files: Optional[List[st
     Before calling, tell the user: it will be visible to everyone with access to this repo.
 
     memory_id: one of the user's own memories to share (e.g. "m42"); it moves to the team.
-    fact: or a new fact to share directly. Always pass files= with what it depends on: that's how everyone's AI
+    fact: or a new fact to share directly, a sentence or two (at most 2,000 characters). Always pass files= with what it depends on: that's how everyone's AI
     tools learn when it may have gone out of date. Prefer one part of a file over the whole file when the fact
     is about a function, class, setting or section: "shop/api/v1.py#product", "README.md#Releasing". A whole
     file or a folder works too. For starter memories, read the repo and

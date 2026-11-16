@@ -159,7 +159,7 @@ these works, followed by `mnemolith setup`:
 ```sh
 uv tool install mnemolith
 pipx install mnemolith
-pip install mnemolith        # Python 3.10+
+pip install mnemolith        # Python 3.11+
 ```
 
 `setup` starts the engine in the background, downloads the embedding model once (about 90 MB), and connects every
@@ -300,7 +300,9 @@ So a new team memory doesn't start empty, `team init` offers three things, each 
   their own.
 
 Review what was written, then commit `.mnemolith/team/`, `mnemolith.md` and `.gitattributes` like any other change;
-each teammate runs `mnemolith team init` in their copy to use it (joining never touches the repo). The dashboard (`mnemolith ui`) has a Team memory section and a
+each teammate runs `mnemolith team init` in their copy to use it (joining never touches the repo).
+`mnemolith team pr` prints a description for that pull request: what the files are, what to review, and how teammates
+start using it. The dashboard (`mnemolith ui`) has a Team memory section and a
 **Share with team** button on each of your memories.
 
 **How it behaves**
@@ -318,6 +320,8 @@ each teammate runs `mnemolith team init` in their copy to use it (joining never 
 - **Sharing moves, it doesn't copy.** A shared memory leaves your own memories, so nobody sees the same fact twice.
   Sharing something the team already has is refused, and `mnemolith team` points out two team memories that say
   nearly the same thing. `mnemolith team unshare <name>` takes one back.
+- **One fact per memory.** A team memory holds at most 2,000 characters, the same as a personal one; longer ones
+  are refused with a hint to split them.
 - **A record of who and when.** Each file carries who wrote it, and who last confirmed or reworded it and when.
   `mnemolith team` marks what arrived since you last looked.
 - **Caught in review.** `mnemolith team action` adds a GitHub workflow that comments on a pull request when it
