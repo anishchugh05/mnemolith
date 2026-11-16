@@ -1,0 +1,47 @@
+# CodeQL code scanning: reads the source for known security mistakes (untrusted input reaching a shell command or a
+# file path, unsafe HTML, weak crypto, ...). Findings show on the pull request and under Security > Code scanning;
+# they don't block a merge. Runs on pull requests, on pushes to main, and weekly, so newly added checks still run
+# when nothing changed. Default rules: high-confidence findings only.
+#
+# Actions are pinned to exact commits (the tag is in the comment), so a moved tag can't change what runs.
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 5 * * 1" # Mondays, 05:17 UTC
+
+permissions: {}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # to upload the findings
+    strategy:
+      fail-fast: false
+      matrix:
+        # none of the three needs a build: the engine (src/main/java) is scanned straight from its source
+        language: [python, java-kotlin, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          # eval/ is the sample code the evaluation runs Claude against; it isn't part of the package
+          config: |
+            paths-ignore:
+              - eval/
+
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: /language:${{ matrix.language }}

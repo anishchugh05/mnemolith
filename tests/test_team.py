@@ -6,6 +6,7 @@ included, don't mistake this file for one that leaks real ones. None of them is 
 Run with `python -m pytest tests`.
 """
 import json
+import re
 
 import pytest
 
@@ -643,6 +644,16 @@ def test_a_pull_request_is_checked_against_what_it_changed(repo):
     comment = team.pr_comment(found)
     assert "1 team memory may be out of date" in comment and "docs/" in comment and team.pr_comment([]) == ""
     assert team.write_workflow(repo) and not team.write_workflow(repo)
+
+
+def test_the_team_workflow_pins_its_actions_and_keeps_the_branch_name_out_of_its_commands():
+    lines = team.WORKFLOW_TEXT.splitlines()
+    uses = [line.split("uses:", 1)[1].split("#")[0].strip() for line in lines if "uses:" in line]
+    assert uses and all(re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", u) for u in uses)  # exact commits, not tags
+    # the target branch's name reaches the shell only through an environment variable
+    assert [line.strip() for line in lines if "github.base_ref" in line] == \
+        ["BASE: ${{ github.base_ref }}  # passed as a variable, never pasted into the command itself"]
+    assert "persist-credentials: false" in team.WORKFLOW_TEXT
 
 
 def test_a_teammate_who_hasnt_joined_is_told_once_and_never_after_leaving(repo, monkeypatch):

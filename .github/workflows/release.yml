@@ -22,7 +22,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      # Actions are pinned to exact commits (the version is in the comment), so a moved tag can't change what runs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check the tag matches every version number
         run: |
@@ -39,7 +42,7 @@ jobs:
             fi
           done
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
 
       - name: Check the plugin's lockfile matches the plugin's pinned version
         run: cd plugin && uv lock --check
@@ -61,7 +64,7 @@ jobs:
           uv pip install --python /tmp/check/bin/python dist/aether_cache-*.whl
           /tmp/check/bin/aether-cache | grep -q "Aether Cache is now Mnemolith"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/
@@ -73,11 +76,11 @@ jobs:
     permissions:
       id-token: write # trusted publishing
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           skip-existing: true # the final aether-cache release is only uploaded once
 
@@ -88,7 +91,9 @@ jobs:
       id-token: write # GitHub OIDC login to the registry
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Wait for PyPI to serve the new version
         run: |
@@ -103,8 +108,17 @@ jobs:
           exit 1
 
       - name: Install mcp-publisher
+        # A fixed version, checked against its SHA-256 before it runs, so a changed download can't publish anything.
+        # To update: pick a release at github.com/modelcontextprotocol/registry/releases and copy the
+        # mcp-publisher_linux_amd64.tar.gz line from its registry_<version>_checksums.txt (ubuntu-latest is x86_64).
+        env:
+          MCP_PUBLISHER_VERSION: v1.8.9
+          MCP_PUBLISHER_SHA256: 4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8
         run: |
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xzf mcp-publisher.tar.gz mcp-publisher
 
       - name: Log in to the MCP Registry
         run: ./mcp-publisher login github-oidc
@@ -118,11 +132,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
           path: dist/
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: dist/mnemolith-*
           generate_release_notes: true
