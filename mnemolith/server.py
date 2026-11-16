@@ -574,6 +574,18 @@ def _team_id(memory_id: str) -> bool:
     return memory_id.strip().startswith("team:")
 
 
+def _in_project(memory_id: str) -> bool:
+    """Whether a personal memory exists and belongs to the project this session is in. Ids are numbered across all
+    projects (m1, m2, ...), so the tools that act on a memory by id check this first: an AI working in one repo can't
+    read or change another repo's memories. The dashboard manages every project on purpose and doesn't use these."""
+    r = run("MEM.GET", memory_id)
+    return r is not None and dict(zip(r[0::2], r[1::2])).get("project") == project_name()
+
+
+def _not_here(memory_id: str) -> str:
+    return f"No memory with id {memory_id} in this project."
+
+
 @core_tool()
 def recall(query: str, limit: int = 5) -> str:
     """Search this project's shared memory by meaning. Call it at the start of every task, and whenever
@@ -628,6 +640,8 @@ def explain_memory(memory_id: str) -> str:
     if _team_id(memory_id):
         return _explain_team(memory_id)
     try:
+        if not _in_project(memory_id):
+            return _not_here(memory_id)
         r = run("MEM.WHY", memory_id)
     except EngineDown as e:
         return store_down(e)
@@ -670,6 +684,8 @@ def mark_outdated(memory_id: str, reason: str) -> str:
                 f"Tell the user what looks wrong. They can reword it with `mnemolith team edit {name} \"...\"` or "
                 f"retire it with `mnemolith team retire {name}`, then review and commit the change.")
     try:
+        if not _in_project(memory_id):
+            return _not_here(memory_id)
         reply = run("MEM.STATUS", memory_id, "stale", "REASON", reason)
     except EngineDown as e:
         return store_down(e)
@@ -683,6 +699,9 @@ def replace_memory(old_id: str, new_id: str) -> str:
     """Retire an older memory because a newer one replaces it (e.g. "we use Postgres" replaced by
     "we migrated to MySQL"). The old memory stops showing up in recall but keeps its history."""
     try:
+        for memory_id in (old_id, new_id):
+            if not _in_project(memory_id):
+                return _not_here(memory_id)
         new = run("MEM.GET", new_id)
         if new is None:
             return f"No memory with id {new_id}."
@@ -724,6 +743,8 @@ def confirm_memory(memory_id: str) -> str:
         return (f"Confirmed {mem.id}: {mem.path.relative_to(repo_root()).as_posix()} now records the current "
                 f"versions of its files. Tell the user it's a change in the repo for them to commit.")
     try:
+        if not _in_project(memory_id):
+            return _not_here(memory_id)
         linked = confirm(memory_id)
     except EngineDown as e:
         return store_down(e)
@@ -819,6 +840,9 @@ def resolve_conflict(new_id: str, old_id: str, replaces_old: bool) -> str:
     """Settle a possible conflict. replaces_old=True: the new memory replaces the old one (the old one
     is retired). replaces_old=False: both are true, keep both. Ask the user if you're not sure."""
     try:
+        for memory_id in (new_id, old_id):
+            if not _in_project(memory_id):
+                return _not_here(memory_id)
         run("MEM.RESOLVE", new_id, old_id, "SUPERSEDE" if replaces_old else "KEEP")
     except EngineDown as e:
         return store_down(e)
