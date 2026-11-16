@@ -394,6 +394,12 @@ def core_tool():
         return mcp.tool()
 
 
+# The most one memory may hold, the same limit the dashboard and Mender use. A memory is shown in every recall and
+# synced into AGENTS.md / CLAUDE.md, so one huge one would crowd out everything else; and the embedding model only
+# reads the start of a long text, so most of it would never be found anyway.
+MAX_FACT = 2000
+
+
 @core_tool()
 def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "", new: bool = False) -> str:
     """Save a durable fact about this project so future sessions, in any AI tool, know it.
@@ -402,11 +408,17 @@ def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "", n
 
     Good facts: conventions ("we use pnpm, not npm"), setup gotchas ("tests need DOCKER_HOST set"),
     decisions and their reasons. Not: temporary task details or anything in the code already.
+    One fact per call, a sentence or two (at most 2,000 characters).
     files: repo-relative paths this fact depends on (e.g. ["docker-compose.yml"]), so the memory
     can be flagged when those files change.
     replaces: the id of a memory this fact makes untrue (e.g. "m42"), to save and retire it in one call.
     new: save it even though a similar memory exists, because it's a separate fact.
     """
+    size = len(" ".join(fact.split()))  # counted as the dashboard counts it: runs of spaces and line breaks as one
+    if size > MAX_FACT:
+        return (f"Not saved: that's {size:,} characters, too long for one memory (the limit is {MAX_FACT:,}). "
+                f"Save the key facts separately, one remember call each, or save a short fact and pass files= with "
+                f"the file that holds the details.")
     try:
         vector = embed(fact)
         if not replaces and not new:
