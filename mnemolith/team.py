@@ -1518,6 +1518,7 @@ def pr_comment(found: List[dict]) -> str:
 WORKFLOW = ".github/workflows/mnemolith-team.yml"
 WORKFLOW_TEXT = """# Comments on a pull request when it changes something a team memory depends on, so out-of-date
 # knowledge is caught in review. Written by `mnemolith team action`; yours to edit.
+# Actions are pinned to exact commits (the version is in the comment), so a moved tag can't change what runs.
 name: Team memory check
 
 on:
@@ -1531,12 +1532,15 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v5
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
       - name: Check team memories against this pull request
-        run: uvx mnemolith team check --base "origin/${{ github.base_ref }}" --markdown > team-memory.md
+        env:
+          BASE: ${{ github.base_ref }}  # passed as a variable, never pasted into the command itself
+        run: uvx mnemolith team check --base "origin/$BASE" --markdown > team-memory.md
       - name: Comment on the pull request
         continue-on-error: true  # pull requests from forks can't comment
         env:
