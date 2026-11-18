@@ -80,6 +80,17 @@ def test_a_changed_file_marks_the_memory_until_it_is_confirmed(repo):
     assert team.changed(team.find(repo, "pnpm"), repo) == []
 
 
+def test_restoring_the_exact_original_content_makes_the_approval_valid_again(repo):
+    team.init(repo)
+    original = (repo / "package.json").read_bytes()
+    write(repo, "pnpm", "---\nfiles:\n  - package.json\n---\nWe use pnpm, not npm.\n")
+    team.confirm(repo, "pnpm")
+    (repo / "package.json").write_text('{"packageManager": "yarn"}\n')
+    assert team.changed(team.find(repo, "pnpm"), repo) == ["package.json changed"]
+    (repo / "package.json").write_bytes(original)
+    assert team.changed(team.find(repo, "pnpm"), repo) == []
+
+
 def test_line_endings_dont_change_the_fingerprint(repo):
     (repo / "a.txt").write_bytes(b"one\ntwo\n")
     (repo / "b.txt").write_bytes(b"one\r\ntwo\r\n")
