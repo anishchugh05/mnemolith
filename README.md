@@ -317,6 +317,8 @@ start using it. The dashboard (`mnemolith ui`) has a Team memory section and a
   a big file. Line endings don't matter, so Windows and Mac agree. A file that was renamed or moved is followed:
   `confirm` relinks it. When one changes, every teammate's AI sees the memory as possibly outdated
   until someone runs `mnemolith team confirm <name>` (still true) or `mnemolith team retire <name>`, and commits it.
+  Undo the change exactly and the flag goes away on its own, since a team memory is checked against its fingerprints
+  each time. Your own memories are different: once one is flagged, it stays flagged until you confirm it.
 - **Sharing moves, it doesn't copy.** A shared memory leaves your own memories, so nobody sees the same fact twice.
   Sharing something the team already has is refused, and `mnemolith team` points out two team memories that say
   nearly the same thing. `mnemolith team unshare <name>` takes one back.
