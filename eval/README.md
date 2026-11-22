@@ -43,6 +43,12 @@ python3 report.py            # the results table
 Runs use your Claude plan. If it hits the usage limit, the batch stops and `--resume` picks up where it left off.
 Results and transcripts go to `eval/runs/` (not committed).
 
+Every run, dry or real, gets its own Mnemolith: a scratch home and its own engine on a free port
+([sandbox.py](sandbox.py)), so the eval never reads or writes your `~/.mnemolith` or the engine you use, even while
+it's running. That Mnemolith is stopped and deleted when the run ends, however it ends; a run that was killed
+outright is cleaned up the next time `run.py` starts. The embedding model downloads once, into `eval/runs/.cache/`.
+`python -m pytest tests -m engine` proves it.
+
 ## Results
 
 The latest full run of round 2, with Mnemolith 0.3.5, is in

@@ -27,12 +27,12 @@ Usage (from this folder):
 
 Needs: Claude Code signed in, uv, git, make, and Mnemolith's engine able to start (it starts itself).
 Standard library only. Your own Claude Code settings, plugins and MCP servers are left out of every run, so the
-three setups differ only in the notes or memories they get.
+three setups differ only in the notes or memories they get. Each run also gets its own Mnemolith (a scratch home and
+engine, see sandbox.py), so your own memories are never read or changed.
 """
 import argparse
 import importlib
 import json
-import os
 import random
 import shutil
 import subprocess
@@ -41,9 +41,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import sandbox
+
 HERE = Path(__file__).resolve().parent
 SUITES = {"v1": ("tasks", "template"), "v2": ("tasks_v2", "template_v2"), "v3": ("tasks_v3", "template_v2")}
-RUNS = HERE / "runs"
+RUNS = sandbox.RUNS  # eval/runs, or EVAL_RUNS_DIR
 MNEMOLITH = "0.3.5"  # the release under test; seed.py and the MCP server both use it
 ARMS = ["none", "notes", "mnemolith"]
 LOCAL = None  # with --local: the repo folder whose code is tested instead of the PyPI release
@@ -98,7 +100,7 @@ def notes_file(facts):
     return "\n".join(lines + [f"- {f['text']}" for f in facts]) + "\n"
 
 
-def prepare(suite, run_dir, arm, project):
+def prepare(suite, run_dir, arm, project, box):
     """A fresh copy of the sample repo, with this setup's notes or memories, then (round 1) the commit that makes
     two facts stale."""
     shutil.copytree(suite.TEMPLATE, run_dir, ignore=shutil.ignore_patterns("__pycache__"))
@@ -108,9 +110,7 @@ def prepare(suite, run_dir, arm, project):
         (run_dir / "CLAUDE.md").write_text(notes_file(suite.FACTS))
         git_commit(run_dir, "Add notes for AI tools")
     if arm == "mnemolith":
-        env = dict(os.environ, MNEMOLITH_PROJECT=project, MNEMOLITH_SOURCE="eval", EVAL_SUITE=suite.__name__)
-        sh(["uv", "run", "--quiet", "--no-project", "--refresh-package", "mnemolith", "--python", "3.12",
-            "--with", package(), "python", str(HERE / "seed.py")], run_dir, env=env)
+        seed(suite, run_dir, project, box)
     if suite.DRIFT:
         for rel, (old, new) in suite.DRIFT.items():
             path = run_dir / rel
@@ -118,19 +118,20 @@ def prepare(suite, run_dir, arm, project):
         git_commit(run_dir, suite.DRIFT_MESSAGE)
 
 
-def mcp_config(run_dir, arm, project):
+def mcp_config(run_dir, arm, project, box):
     servers = {}
     if arm in ("mnemolith", "team"):
         command = uvx("serve")
         servers["mnemolith"] = {"command": command[0], "args": command[1:],
-                                "env": {"MNEMOLITH_PROJECT": project, "MNEMOLITH_SOURCE": "eval"}}
+                                "env": {"MNEMOLITH_PROJECT": project, "MNEMOLITH_SOURCE": "eval", **box.overrides()}}
     path = run_dir.parent / f"{run_dir.name}.mcp.json"
     path.write_text(json.dumps({"mcpServers": servers}))
     return path
 
 
-def seed(suite, cwd, project, team=""):
-    env = dict(os.environ, MNEMOLITH_PROJECT=project, MNEMOLITH_SOURCE="eval", EVAL_SUITE=suite.__name__, EVAL_TEAM=team)
+def seed(suite, cwd, project, box, team=""):
+    """Saves the round's facts as memories (or team memories), in this run's sandbox only."""
+    env = box.env(MNEMOLITH_PROJECT=project, MNEMOLITH_SOURCE="eval", EVAL_SUITE=suite.__name__, EVAL_TEAM=team)
     sh(["uv", "run", "--quiet", "--no-project", "--refresh-package", "mnemolith", "--python", "3.12",
         "--with", package(), "python", str(HERE / "seed.py")], cwd, env=env)
 
@@ -141,7 +142,7 @@ def team_dirs(run_dir):
     return run_dir.with_name(run_dir.name + ".a"), run_dir.with_name(run_dir.name + ".git")
 
 
-def run_team(suite, task, run_dir, arm, project, model, batch, name, dry_run):
+def run_team(suite, task, run_dir, arm, project, model, batch, name, dry_run, box):
     """One round 3 run. Returns (first, result), either of which may be a usage-limit reply; None when dry."""
     a_dir, remote = team_dirs(run_dir)
     for d in (a_dir, remote):
@@ -155,9 +156,9 @@ def run_team(suite, task, run_dir, arm, project, model, batch, name, dry_run):
         (a_dir / "CLAUDE.md").write_text(notes_file(suite.FACTS))
         git_commit(a_dir, "Add notes for AI tools")
     if arm == "mnemolith":
-        seed(suite, a_dir, project)
+        seed(suite, a_dir, project, box)
     if arm == "team":
-        seed(suite, a_dir, project, team="start")
+        seed(suite, a_dir, project, box, team="start")
         git_commit(a_dir, "Start a team memory")
     sh(["git", "init", "-q", "--bare", str(remote)], batch)
     sh(["git", "remote", "add", "origin", str(remote)], a_dir)
@@ -166,7 +167,8 @@ def run_team(suite, task, run_dir, arm, project, model, batch, name, dry_run):
     first = None
     if not dry_run:
         # Session 1: teammate A tells their AI something and asks for the team's AI tools to know it
-        first = ask_claude(a_dir, task["first"], mcp_config(a_dir, arm, project), model, batch / f"{name}.first.jsonl")
+        first = ask_claude(a_dir, task["first"], mcp_config(a_dir, arm, project, box), model,
+                           batch / f"{name}.first.jsonl", box)
         if hit_limit(first):
             return first, None
     sh(["git", "add", "-A"], a_dir)  # A commits and pushes whatever that session left in the repo
@@ -180,30 +182,26 @@ def run_team(suite, task, run_dir, arm, project, model, batch, name, dry_run):
     sh(["git", "clone", "-q", str(remote), str(run_dir)], batch)
     b_project = project + "-b"
     if arm == "mnemolith":
-        seed(suite, run_dir, b_project)
+        seed(suite, run_dir, b_project, box)
     if arm == "team":
-        seed(suite, run_dir, b_project, team="join")
+        seed(suite, run_dir, b_project, box, team="join")
     if dry_run:
         return None, None
-    result = ask_claude(run_dir, task["prompt"], mcp_config(run_dir, arm, b_project), model,
-                        batch / f"{name}.transcript.jsonl")
+    result = ask_claude(run_dir, task["prompt"], mcp_config(run_dir, arm, b_project, box), model,
+                        batch / f"{name}.transcript.jsonl", box)
     return first, result
 
 
-def clean_team(suite, run_dir, arm, project, keep):
+def clean_team(run_dir, keep):
+    """Deletes both clones and the remote unless kept. The memories and team settings were in the run's sandbox,
+    which takes them with it."""
     a_dir, remote = team_dirs(run_dir)
-    if arm in ("mnemolith", "team"):
-        for d, p in ((a_dir, project), (run_dir, project + "-b")):
-            if d.exists():
-                sh(uvx("remove", p, "--yes"), d, check=False)
-                if arm == "team":
-                    seed(suite, d, p, team="leave")
     if not keep:
         for d in (run_dir, a_dir, remote):
             shutil.rmtree(d, ignore_errors=True)
 
 
-def ask_claude(run_dir, prompt, config, model, transcript):
+def ask_claude(run_dir, prompt, config, model, transcript, box):
     cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose",
            "--strict-mcp-config", "--mcp-config", str(config),
            "--setting-sources", "project,local", "--no-session-persistence",
@@ -211,7 +209,7 @@ def ask_claude(run_dir, prompt, config, model, transcript):
     if model:
         cmd += ["--model", model]
     started = time.time()
-    p = subprocess.run(cmd, cwd=run_dir, capture_output=True, text=True, timeout=1200)
+    p = subprocess.run(cmd, cwd=run_dir, env=box.env(), capture_output=True, text=True, timeout=1200)
     transcript.write_text(p.stdout + ("\n" + p.stderr if p.stderr else ""))
     out = {"seconds": round(time.time() - started, 1), "tool_calls": 0, "memory_calls": 0, "answer": "",
            "turns": None, "tokens": None, "cost_usd": None, "error": p.returncode != 0, "model": None}
@@ -249,6 +247,58 @@ def plan(tasks, repeat, seed, arms=ARMS):
     return runs
 
 
+def one_run(suite, task, arm, rep, name, batch, meta, args, results_file, box):
+    """One task in one setup, inside its sandbox. Returns True if Claude's usage limit was hit (stop the batch)."""
+    run_dir = batch / name
+    project = f"eval-{batch.name}-{name}"
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    team_round = getattr(suite, "TEAM", False)
+    first = None
+    if team_round:
+        first, result = run_team(suite, task, run_dir, arm, project, meta["model"], batch, name, args.dry_run, box)
+        if (first and hit_limit(first)) or (result and hit_limit(result)):
+            clean_team(run_dir, keep=False)
+            return True
+        if result is None:
+            result = {"seconds": 0, "tool_calls": 0, "memory_calls": 0, "answer": "", "turns": None,
+                      "tokens": None, "cost_usd": None, "error": False, "model": None}
+    else:
+        prepare(suite, run_dir, arm, project, box)
+        if args.dry_run:
+            result = {"seconds": 0, "tool_calls": 0, "memory_calls": 0, "answer": "", "turns": None,
+                      "tokens": None, "cost_usd": None, "error": False, "model": None}
+        else:
+            config = mcp_config(run_dir, arm, project, box)
+            if task.get("first"):
+                # Session 1 mentions the fact in passing; session 2, a fresh Claude Code session, needs it.
+                first = ask_claude(run_dir, task["first"], config, meta["model"], batch / f"{name}.first.jsonl", box)
+                if hit_limit(first):
+                    return True
+                sh(["git", "add", "-A"], run_dir)
+                sh(["git", "-c", "user.name=eval", "-c", "user.email=eval@example.com", "commit", "-q",
+                    "--allow-empty", "-m", "Session 1"], run_dir)
+            result = ask_claude(run_dir, task["prompt"], config, meta["model"], batch / f"{name}.transcript.jsonl",
+                                box)
+            if hit_limit(result):
+                return True
+    passed, note = task["check"](run_dir, result["answer"])
+    row = {"task": task["id"], "arm": arm, "rep": rep, "stale_task": bool(task.get("stale")),
+           "cross_session": bool(task.get("cross_session")), "passed": passed, "note": note, **result}
+    if first:
+        row["first_turns"], row["first_memory_calls"] = first["turns"], first["memory_calls"]
+        row["first_cost_usd"] = first["cost_usd"]
+    with results_file.open("a") as f:
+        f.write(json.dumps(row) + "\n")
+    print(("pass" if passed else "FAIL") + f" ({result['seconds']}s, {result['turns']} turns)")
+    keep = args.keep or not passed
+    if team_round:
+        clean_team(run_dir, keep=keep)
+    elif not keep:
+        shutil.rmtree(run_dir, ignore_errors=True)
+    return False
+
+
 def main():
     global LOCAL
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -263,13 +313,14 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="skip Claude; just prepare each run and check it")
     ap.add_argument("--keep", action="store_true", help="keep each run's repo copy (default: only failures)")
     args = ap.parse_args()
+    sandbox.install_signal_handlers()  # SIGTERM / SIGHUP clean up like Ctrl-C
 
     for tool in ("git", "make", "uv") + (() if args.dry_run else ("claude",)):
         if not shutil.which(tool):
             sys.exit(f"{tool} isn't installed or isn't on PATH.")
 
     if args.resume:
-        batches = sorted(p for p in RUNS.glob("*") if p.is_dir())
+        batches = sorted(p for p in RUNS.glob("*") if p.is_dir() and not p.name.startswith("."))
         if not batches:
             sys.exit("No batch to resume.")
         batch = RUNS / args.resume if args.resume != "latest" else batches[-1]
@@ -306,63 +357,20 @@ def main():
     print(f"Batch {batch.name} (round {meta.get('suite', 'v1')}, Mnemolith {meta.get('mnemolith')}): "
           f"{len(done)} done, running {len(todo)} now.")
 
-    for n, (task_id, arm, rep) in enumerate(todo, 1):
-        task = tasks[task_id]
-        name = f"{task_id}-{arm}-{rep}"
-        run_dir = batch / name
-        project = f"eval-{batch.name}-{name}"
-        if run_dir.exists():
-            shutil.rmtree(run_dir)
-        print(f"[{n}/{len(todo)}] {name} ...", end=" ", flush=True)
-        team_round = getattr(suite, "TEAM", False)
-        first = None
-        if team_round:
-            first, result = run_team(suite, task, run_dir, arm, project, meta["model"], batch, name, args.dry_run)
-            if (first and hit_limit(first)) or (result and hit_limit(result)):
-                clean_team(suite, run_dir, arm, project, keep=False)
+    for line in sandbox.sweep():
+        print(f"Left over from a run that was killed: {line}")
+    try:
+        for n, (task_id, arm, rep) in enumerate(todo, 1):
+            name = f"{task_id}-{arm}-{rep}"
+            print(f"[{n}/{len(todo)}] {name} ...", end=" ", flush=True)
+            # every run, dry or real, gets its own Mnemolith (scratch home + port), cleaned up however the run ends
+            with sandbox.Sandbox(f"{batch.name}-{name}") as box:
+                stop = one_run(suite, tasks[task_id], arm, rep, name, batch, meta, args, results_file, box)
+            if stop:
                 print("hit the Claude usage limit. Stopping; run `python3 run.py --resume` later.")
                 break
-            if result is None:
-                result = {"seconds": 0, "tool_calls": 0, "memory_calls": 0, "answer": "", "turns": None,
-                          "tokens": None, "cost_usd": None, "error": False, "model": None}
-        else:
-            prepare(suite, run_dir, arm, project)
-        if team_round:
-            pass
-        elif args.dry_run:
-            result = {"seconds": 0, "tool_calls": 0, "memory_calls": 0, "answer": "", "turns": None,
-                      "tokens": None, "cost_usd": None, "error": False, "model": None}
-        else:
-            config = mcp_config(run_dir, arm, project)
-            if task.get("first"):
-                # Session 1 mentions the fact in passing; session 2, a fresh Claude Code session, needs it.
-                first = ask_claude(run_dir, task["first"], config, meta["model"], batch / f"{name}.first.jsonl")
-                if hit_limit(first):
-                    print("hit the Claude usage limit. Stopping; run `python3 run.py --resume` later.")
-                    break
-                sh(["git", "add", "-A"], run_dir)
-                sh(["git", "-c", "user.name=eval", "-c", "user.email=eval@example.com", "commit", "-q",
-                    "--allow-empty", "-m", "Session 1"], run_dir)
-            result = ask_claude(run_dir, task["prompt"], config, meta["model"], batch / f"{name}.transcript.jsonl")
-            if hit_limit(result):
-                print("hit the Claude usage limit. Stopping; run `python3 run.py --resume` later.")
-                break
-        passed, note = task["check"](run_dir, result["answer"])
-        row = {"task": task_id, "arm": arm, "rep": rep, "stale_task": bool(task.get("stale")),
-               "cross_session": bool(task.get("cross_session")), "passed": passed, "note": note, **result}
-        if first:
-            row["first_turns"], row["first_memory_calls"] = first["turns"], first["memory_calls"]
-            row["first_cost_usd"] = first["cost_usd"]
-        with results_file.open("a") as f:
-            f.write(json.dumps(row) + "\n")
-        print(("pass" if passed else "FAIL") + f" ({result['seconds']}s, {result['turns']} turns)")
-        if team_round:
-            clean_team(suite, run_dir, arm, project, keep=args.keep or not passed)
-            continue
-        if arm == "mnemolith":
-            sh(uvx("remove", project, "--yes"), run_dir, check=False)
-        if passed and not args.keep:
-            shutil.rmtree(run_dir, ignore_errors=True)
+    except KeyboardInterrupt:
+        sys.exit("\nStopped. Each run's Mnemolith was cleaned up; `python3 run.py --resume` continues the batch.")
 
     print(f"Results: {results_file}\nSummary: python3 report.py {batch.name}")
 

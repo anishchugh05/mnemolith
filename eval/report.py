@@ -19,7 +19,7 @@ def fmt(value, digits=1):
 
 
 def main():
-    batches = sorted(p for p in RUNS.glob("*") if p.is_dir())
+    batches = sorted(p for p in RUNS.glob("*") if p.is_dir() and not p.name.startswith("."))
     if not batches:
         sys.exit("No batches yet. Run python3 run.py first.")
     batch = RUNS / sys.argv[1] if len(sys.argv) > 1 else batches[-1]
