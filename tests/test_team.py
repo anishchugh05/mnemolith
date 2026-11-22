@@ -509,6 +509,18 @@ def test_a_memory_can_follow_one_part_of_a_file(repo):
     assert team.changed(team.find(repo, mem.name), repo) == ["`product` is no longer in api.py"]
 
 
+def test_a_part_moved_to_another_file_is_flagged_and_a_comment_above_it_is_not(repo):
+    team.init(repo)
+    (repo / "api.py").write_text(CODE)
+    mem = team.add(repo, "API product responses (api.py) are frozen for a partner.", ["api.py#product"])
+    (repo / "api.py").write_text("# Partner API, keep stable\n" + CODE)
+    assert team.changed(team.find(repo, mem.name), repo) == []  # a comment above it isn't part of it
+    moved = CODE.split("def listing")[0]
+    (repo / "api.py").write_text(CODE.replace(moved, "from catalog import product\n\n\n"))
+    (repo / "catalog.py").write_text(moved)
+    assert team.changed(team.find(repo, mem.name), repo) == ["`product` is no longer in api.py"]
+
+
 @pytest.mark.parametrize("text,name,first,last", [
     (CODE, "product", "def product(p):", 'return {"name": p["name"], "price": p["price_cents"]}'),
     (CODE, "Cart", "class Cart:", "return 0"),
