@@ -3,9 +3,10 @@ mnemolith: 1
 status: active
 author: Anish Chugh
 created: 2026-11-12
+confirmed: 2026-11-22 by Anish Chugh
 files:
   - scripts/build_engine.py@4cd70ba6580d
-  - .gitignore@c8ae946a6360
+  - .gitignore@fbfc5d1d3d6c
   - src/main/java/Main.java@920e0f9cb700
   - mnemolith/engine/mnemolith-engine.jar@d9ea2adaf5c7
 ---
