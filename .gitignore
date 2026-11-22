@@ -26,3 +26,8 @@ plugin/.venv/
 
 # evaluation results and transcripts, made by eval/run.py
 eval/runs/
+
+# local secrets, never committed (example files are fine)
+.env
+.env.*
+!.env.example
