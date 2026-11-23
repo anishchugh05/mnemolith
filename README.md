@@ -318,7 +318,9 @@ start using it. The dashboard (`mnemolith ui`) has a Team memory section and a
   `confirm` relinks it. When one changes, every teammate's AI sees the memory as possibly outdated
   until someone runs `mnemolith team confirm <name>` (still true) or `mnemolith team retire <name>`, and commits it.
   Undo the change exactly and the flag goes away on its own, since a team memory is checked against its fingerprints
-  each time. Your own memories are different: once one is flagged, it stays flagged until you confirm it.
+  each time. Your own memories are different: once one is flagged, it stays flagged until you confirm it. They can
+  link a part of a file too (`a.py#product`), and `confirm` follows a file that moved. A part link follows its file
+  only when one file with that name is left, so a rename to a new name isn't followed.
 - **Sharing moves, it doesn't copy.** A shared memory leaves your own memories, so nobody sees the same fact twice.
   Sharing something the team already has is refused, and `mnemolith team` points out two team memories that say
   nearly the same thing. `mnemolith team unshare <name>` takes one back.
@@ -409,6 +411,13 @@ the related memories and the AI, which already understands the sentences, *decid
 Each linked file is stored as `path@<git blob hash>`, computed with `git hash-object`. Comparing contents rather than
 commit ids catches uncommitted edits, ignores commits that didn't touch the file, and needs no git hooks: `recall`
 re-hashes the handful of linked files before every search.
+
+That is for a whole file. Your AI can also link a part of one, as `path#symbol` (a function, say). It is stored as
+`path#symbol@<hash of the part>`, a 12-character hash of that part only, so an edit elsewhere in the file doesn't
+flag the memory, and one that removes the part says `` `symbol` is no longer in path``. A symbol that contains `,`
+or `@` is refused. If a linked file is gone, Mnemolith looks for where it went: a file with the same contents, or the
+only file with the same name. `confirm` then relinks the memory. Mender can draft a fix for a part link only when
+the version the memory was saved against was committed, because it finds the old part in git history.
 
 ### Memories never mutate silently
 

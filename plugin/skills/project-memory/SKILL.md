@@ -21,6 +21,8 @@ instead of quietly misleading the next session. Use its tools instead of any bui
   learn something a future session would need: a convention, a setup gotcha, a decision and the reason for it.
 - Always pass `files=` with the files the fact depends on (for example `["docker-compose.yml"]`). That is what
   lets Mnemolith retire the memory when those files change.
+- When the fact is about one part of a big file, link just that part with `path#symbol`: a function, class,
+  setting or Markdown section (for example `["api/v1.py#product"]`). Then only a change to that part flags it.
 - One fact per memory, written so it makes sense on its own months later.
 - Don't save what `recall` already showed you.
 - Don't save things that are obvious from the code, or temporary state like the current branch.

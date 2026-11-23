@@ -278,55 +278,118 @@ def blob_hash(path: Path) -> str:
 
 
 def content_hashes(paths: List[str], root: Optional[Path] = None) -> dict:
-    """path -> hash of the file's current contents, or "missing"."""
+    """link -> hash of what it points at now, or "missing". A whole file gets its git blob hash; a part of a file
+    ("a.py#product", see team.split_link) gets the same 12-hex hash of that part that team memories use."""
+    from . import team  # team imports this module
     root = root or repo_root()
     result = {}
     for p in paths:
+        path, name = team.split_link(root, p)
         try:
-            result[p] = blob_hash(root / p) if (root / p).is_file() else "missing"
+            if not (root / path).is_file():
+                result[p] = "missing"
+            else:
+                result[p] = team._now(root, p) if name else blob_hash(root / path)
         except OSError:
             result[p] = "missing"
     return result
 
 
+def link_problem(paths: List[str], root: Optional[Path] = None) -> str:
+    """Why these links can't be saved, or "" if they can. A part's name can't hold "," or "@": the list of
+    links is split on them."""
+    from . import team
+    root = root or repo_root()
+    for p in paths:
+        path, name = team.split_link(root, relative(p, root)) if p.strip() else ("", "")
+        if name and ("," in name or "@" in name):
+            return (f"\"{p.strip()}\" names a part of {path} with a \",\" or \"@\" in it, which a link can't hold. "
+                    f"Link the whole file ({path}) or a part whose name has neither.")
+    return ""
+
+
 def link_files(paths: List[str], root: Optional[Path] = None) -> str:
-    """["a.py", "b.yml"] -> "a.py@<hash>,b.yml@<hash>": the files plus a snapshot of their contents."""
+    """["a.py", "b.yml#timeout"] -> "a.py@<hash>,b.yml#timeout@<hash>": the files (or parts of files) plus a
+    snapshot of their contents."""
     root = root or repo_root()
     rel = [relative(p, root) for p in paths if p.strip()]
     hashes = content_hashes(rel, root)
     return ",".join(f"{p}@{hashes[p]}" for p in rel)
 
 
+def _split(entry: str) -> tuple:
+    """"a.py#product@<hash>" -> ("a.py#product", "<hash>"); an entry without a hash -> (entry, "")."""
+    link, _, saved = entry.rpartition("@") if "@" in entry else (entry, "", "")
+    return link, saved
+
+
+def moved_to(link: str, saved: str, root: Path) -> Optional[str]:
+    """Where a linked file went, if it was renamed or moved (team.moved_to, which personal links share; their
+    saved whole-file hash is a git blob, so that's what "same contents" compares)."""
+    from . import team
+    return team.moved_to(root, link, saved, same=blob_hash)
+
+
+def what_happened(link: str, saved: str, now: str, root: Path) -> str:
+    """"a.py changed", "`product` in a.py changed", "a.py moved to b.py", "`product` is no longer in a.py",
+    "a.py was deleted"."""
+    from . import team
+    if now != "missing":
+        return f"{team.describe(link, root)} changed"
+    path, name = team.split_link(root, link)
+    new = moved_to(link, saved, root)
+    if new:
+        return f"{path} moved to {team.split_link(root, new)[0]}"
+    if name and (root / path).is_file():
+        return f"`{name}` is no longer in {path}"
+    return f"{path} was deleted"
+
+
+def shown_link(link: str, root: Optional[Path] = None) -> str:
+    """How a link reads to a person: "a.py", or "`product` in a.py" for a part of a file."""
+    if "#" not in link:
+        return link
+    from . import team
+    return team.describe(link, root or repo_root())
+
+
 def check_staleness(project: Optional[str] = None, root: Optional[Path] = None) -> List[str]:
-    """Marks active memories stale when a file they depend on has changed since they were saved.
-    Returns one line per memory that just went stale. Defaults to the current project and repo."""
+    """Marks active memories stale when a file (or part of a file) they depend on has changed since they were
+    saved. Returns one line per memory that just went stale. Defaults to the current project and repo."""
     project = project or project_name()
     root = root or repo_root()
     newly_stale = []
-    linked = []  # (id, text, [(path, saved hash)])
+    linked = []  # (id, text, [(link, saved hash)])
     for mid, _status, files, text in run("MEM.LIST", project):
         entries = [f.rsplit("@", 1) for f in files.split(",") if "@" in f]
         if entries:
             linked.append((mid, text, entries))
     if not linked:
         return newly_stale
-    current = content_hashes(sorted({path for _, _, entries in linked for path, _ in entries}), root)
+    current = content_hashes(sorted({link for _, _, entries in linked for link, _ in entries}), root)
     for mid, text, entries in linked:
-        changed = [path for path, saved in entries if current.get(path) != saved]
+        changed = [(link, saved) for link, saved in entries if current.get(link) != saved]
         if changed:
-            what = ", ".join(f"{p} {'was deleted' if current.get(p) == 'missing' else 'changed'}" for p in changed)
-            run("MEM.STATUS", mid, "stale", "REASON", f"{what} since this was saved")
+            what = ", ".join(what_happened(link, saved, current.get(link), root) for link, saved in changed)
+            run("MEM.STATUS", mid, "stale", "REASON", f"{what} {FILE_CHANGE}")
             newly_stale.append(f"[{mid}] \"{_shown(text)}\" is now marked outdated: {what}.")
     return newly_stale
 
 
 def confirm(memory_id: str, root: Optional[Path] = None) -> Optional[bool]:
-    """Marks a memory still true and re-links it to the current versions of its files.
-    Returns whether it has linked files, or None if there's no such memory."""
+    """Marks a memory still true and re-links it to the current versions of its files, following a file that
+    was renamed or moved. Returns whether it has linked files, or None if there's no such memory."""
     r = run("MEM.GET", memory_id)
     if r is None:
         return None
-    files = [f.rsplit("@", 1)[0] for f in dict(zip(r[0::2], r[1::2]))["files"].split(",") if f]
+    root = root or repo_root()
+    entries = [_split(f) for f in dict(zip(r[0::2], r[1::2]))["files"].split(",") if f]
+    files = []
+    for link, saved in entries:
+        if content_hashes([link], root)[link] == "missing":
+            link = moved_to(link, saved, root) or link
+        files.append(link)
+    files = list(dict.fromkeys(files))
     if files:
         run("MEM.FILES", memory_id, link_files(files, root), "REASON", "confirmed still true")
     run("MEM.STATUS", memory_id, "active", "REASON", "confirmed still true")
@@ -422,7 +485,8 @@ def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "", n
     decisions and their reasons. Not: temporary task details or anything in the code already.
     One fact per call, a sentence or two (at most 2,000 characters).
     files: repo-relative paths this fact depends on (e.g. ["docker-compose.yml"]), so the memory
-    can be flagged when those files change.
+    can be flagged when those files change. For one part of a big file, use path#symbol (a function,
+    class, setting or Markdown section, e.g. "api/v1.py#product"): then only a change to that part flags it.
     replaces: the id of a memory this fact makes untrue (e.g. "m42"), to save and retire it in one call.
     new: save it even though a similar memory exists, because it's a separate fact.
     """
@@ -431,6 +495,9 @@ def remember(fact: str, files: Optional[List[str]] = None, replaces: str = "", n
         return (f"Not saved: that's {size:,} characters, too long for one memory (the limit is {MAX_FACT:,}). "
                 f"Save the key facts separately, one remember call each, or save a short fact and pass files= with "
                 f"the file that holds the details.")
+    problem = link_problem(files or [])
+    if problem:
+        return f"Not saved: {problem}"
     try:
         vector = embed(fact)
         if not replaces and not new:

@@ -343,9 +343,10 @@ def _now(root: Path, link: str) -> str:
 MAX_MOVE_SEARCH = 4000  # files looked through when a linked file is gone, to see where it went
 
 
-def moved_to(root: Path, link: str, saved: str = "") -> Optional[str]:
+def moved_to(root: Path, link: str, saved: str = "", same=None) -> Optional[str]:
     """Where a linked file went, if it was renamed or moved: the link to use now, or None. A file with the same
-    contents somewhere else is a sure match; otherwise the only file with the same name is taken to be it."""
+    contents somewhere else is a sure match; otherwise the only file with the same name is taken to be it.
+    `same` hashes a file the way `saved` was made: the team fingerprint, or server.blob_hash for a personal link."""
     path, name = split_link(root, link)
     if (root / path).exists():
         return None
@@ -363,7 +364,7 @@ def moved_to(root: Path, link: str, saved: str = "") -> Optional[str]:
         pool = same_name + [f for f in files if Path(f).suffix == Path(path).suffix and f not in same_name]
         for f in pool:
             try:
-                if (root / f).stat().st_size <= 512_000 and fingerprint(root / f) == saved:
+                if (root / f).stat().st_size <= 512_000 and (same or fingerprint)(root / f) == saved:
                     found = f
                     break
             except OSError:
@@ -922,8 +923,15 @@ def unshare(root: Path, project: str, name: str) -> Tuple[Memory, str]:
         raise TeamError(f"{mem.name} is {size:,} characters, too long for one personal memory (the limit is "
                         f"{server.MAX_FACT:,}). Nothing changed. Shorten it first with `mnemolith team edit {mem.name} "
                         f"\"...\"`, then take it back.")
-    paths = [split_link(root, link)[0] for link, _ in mem.files]
-    paths = [p for p in dict.fromkeys(paths) if (root / p).is_file()]
+    paths = []
+    for link, _ in mem.files:
+        path, name = split_link(root, link)
+        if not (root / path).is_file():
+            continue  # a folder, or a file that's gone
+        if name and ("," in name or "@" in name or _now(root, link) == "missing"):
+            link = path  # a part a personal link can't hold, or that's gone: the whole file instead
+        paths.append(link)
+    paths = list(dict.fromkeys(paths))
     new_id, _outcome, _related = server.add_memory(project, mem.text.strip(), server.link_files(paths, root) if paths else "",
                                                    vector=server.embed(mem.text.strip()))
     mem.meta["status"] = "retired"

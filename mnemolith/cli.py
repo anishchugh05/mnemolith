@@ -325,7 +325,7 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_list(args) -> int:
-    from .server import EngineDown, project_name, run, store_down
+    from .server import EngineDown, project_name, run, shown_link, store_down
     try:
         rows = run("MEM.LIST", project_name(), "STATUS", args.status)
     except EngineDown as e:
@@ -334,7 +334,7 @@ def cmd_list(args) -> int:
     if not rows:
         print(f"No {'' if args.status == 'any' else args.status + ' '}memories in {project_name()} yet.")
     for mid, status, files, text in rows:
-        linked = ", ".join(f.rsplit("@", 1)[0] for f in files.split(",") if f)
+        linked = ", ".join(shown_link(f.rsplit("@", 1)[0]) for f in files.split(",") if f)
         print(f"{mid:>5}  {status:<10}  {text}" + (f"   [{linked}]" if linked else ""))
     return 0
 

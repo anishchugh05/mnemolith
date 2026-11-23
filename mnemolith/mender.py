@@ -94,6 +94,23 @@ def _links(files: str) -> List[Tuple[str, str]]:
     return [tuple(f.rsplit("@", 1)) for f in files.split(",") if "@" in f]
 
 
+def _file_links(root: Path, files: str) -> List[Tuple[str, str, str]]:
+    """"a.py@<hash>,b.py#product@<hash>" -> [("a.py", "a.py", "<hash>"), ("b.py#product", "b.py", "<hash>")]:
+    each link, the file it's in, and its saved hash. A link to a part of a file reads the whole file."""
+    from . import team
+    return [(link, team.split_link(root, link)[0], saved) for link, saved in _links(files)]
+
+
+def _file_of(root: Path, link: str) -> str:
+    from . import team
+    return team.split_link(root, link)[0]
+
+
+def _label(root: Path, link: str) -> str:
+    from . import team
+    return team.describe(link, root)
+
+
 def get_memory(memory_id: str) -> Optional[dict]:
     got = server.run("MEM.GET", memory_id)
     return _pairs(got) if got else None
@@ -298,20 +315,21 @@ def draft_with_rules(memory: dict, root: Path) -> Optional[dict]:
     """A draft for a stale memory, worked out from what changed in its linked files, or None when the change
     needs judgment (then the AI tool can propose one)."""
     text = memory["text"]
-    links = _links(memory.get("files", ""))
+    links = _file_links(root, memory.get("files", ""))
     if not links:
         return None
-    current = server.content_hashes([p for p, _ in links], root)
+    current = server.content_hashes([p for _, p, _ in links], root)
     key_words = _key_words(text)
     new_text = text
     files, evidence, swaps_used = [], [], []
     undecided = False   # a change we can't judge from the files alone
     touched = False     # a change that's about this memory
 
-    for path, saved in links:
+    for link, path, saved in links:
+        part = link[len(path):]  # "#product" for a part of a file, else ""
         now = current.get(path)
         if now == saved:
-            files.append(path)
+            files.append(link)
             continue
         if now == "missing":
             moved = find_move(root, path, saved)
@@ -319,7 +337,7 @@ def draft_with_rules(memory: dict, root: Path) -> Optional[dict]:
                 undecided = True  # deleted: whether the fact still holds is a human (or AI) call
                 evidence.append({"kind": "file", "label": f"{path} was deleted", "detail": ""})
                 continue
-            files.append(moved)
+            files.append(moved + part)
             evidence.append({"kind": "file", "label": f"{path} moved to {moved}", "detail": ""})
             before = new_text
             new_text, used = apply_swaps(new_text, [(path, moved)] + (
@@ -334,11 +352,11 @@ def draft_with_rules(memory: dict, root: Path) -> Optional[dict]:
                 swaps_used += verdict["swaps"]
                 evidence += verdict["evidence"]
             continue
-        files.append(path)
+        files.append(link)
         old_body, new_body = old_version(root, saved), current_version(root, path)
         if old_body is None or new_body is None:
             undecided = True  # the saved version isn't in git (never committed), so there's nothing to compare
-            evidence.append({"kind": "file", "label": f"{path} changed, but the saved version isn't in git",
+            evidence.append({"kind": "file", "label": f"{_label(root, link)} changed, but the saved version isn't in git",
                              "detail": ""})
             continue
         verdict = _compare(old_body, new_body, new_text, key_words, path)
@@ -393,7 +411,7 @@ def removed_or_added_related(removed: List[str], added: List[str], key_words: se
 def change_evidence(memory: dict, root: Path, limit: int = 8) -> List[dict]:
     """The lines that changed in a memory's linked files, as evidence to show next to a draft."""
     out = []
-    for path, saved in _links(memory.get("files", "")):
+    for _link, path, saved in _file_links(root, memory.get("files", "")):
         old, now = old_version(root, saved), current_version(root, path)
         if now is None and not (root / path).exists():
             moved = find_move(root, path, saved)
@@ -467,7 +485,7 @@ def refresh(project: str, root: Optional[Path]) -> Dict[str, dict]:
                 continue  # still matches the files
             if not needs_decision(memory):
                 continue
-            new = draft_with_rules(memory, root)
+            new = draft_with_rules(personal_as_memory(root, memory), root)
             if new:
                 drafts[mid] = new  # the files moved on: a fresh rules draft replaces the old one, whoever wrote it
             elif existing and existing.get("by") == "rules":
@@ -493,7 +511,7 @@ def ground(memory: dict, new_text: str, reason: str, root: Optional[Path]) -> Li
     if root is None:
         return ["Couldn't check this draft against the files: the repo's location isn't known."]
     bodies = []
-    for path, saved in _links(memory.get("files", "")):
+    for _link, path, saved in _file_links(root, memory.get("files", "")):
         for body in (old_version(root, saved), current_version(root, path)):
             if body:
                 bodies.append(body.lower())
@@ -529,17 +547,21 @@ def propose(memory_id: str, new_text: str, reason: str, still_true: bool, by: st
         return "Couldn't find this project's repo, so the draft can't be checked against the files."
     linked = [p for p, _ in _links(memory.get("files", ""))]
     paths = [server.relative(p, root) for p in (files or [])] or linked
-    paths = [p for p in paths if _inside(root, p) is not None]
-    missing = [p for p in paths if not (root / p).is_file()]
+    problem = server.link_problem(paths, root)
+    if problem:
+        return f"Not saved: {problem}"
+    paths = [p for p in paths if _inside(root, _file_of(root, p)) is not None]
+    missing = [p for p in paths if not (root / _file_of(root, p)).is_file()]
     if missing:
         return f"These files don't exist: {', '.join(missing)}. Pass the files the new fact depends on now."
-    evidence = change_evidence(memory, root)
+    rules = personal_as_memory(root, memory)  # its old versions, found in git history for part links
+    evidence = change_evidence(rules, root)
     if still_true:
         draft = _draft(memory, "confirm", memory["text"], " ".join((reason or "Still true.").split())[:600], paths,
                        root, evidence, by=by)
     else:
         draft = _draft(memory, "replace", text, " ".join((reason or "").split())[:600] or "Drafted by your AI tool.",
-                       paths, root, evidence, by=by, warnings=ground(memory, text, reason, root))
+                       paths, root, evidence, by=by, warnings=ground(rules, text, reason, root))
     put_draft(memory["project"], draft)
     note = f" Unverified: {' '.join(draft['warnings'])}" if draft["warnings"] else ""
     return (f"Draft saved for {memory_id}. Nothing changes until the user approves it in the dashboard "
@@ -576,7 +598,7 @@ def approve(project: str, memory_id: str, root: Optional[Path], text: Optional[s
         raise Refused(409, f"The dashboard doesn't know where the {project} repo is yet. Add it with Add project.")
     if drifted(draft, root):
         raise Refused(409, drift_message(draft))
-    files = [f for f in draft.get("files", []) if (root / f).is_file()]
+    files = [f for f in draft.get("files", []) if (root / _file_of(root, f)).is_file()]
     who = by_label(draft.get("by", ""))
     before = {"old_id": memory_id, "old_reason": server.status_reason(memory_id), "old_files": memory.get("files", ""),
               "by": draft.get("by", ""), "draft": draft}
@@ -743,14 +765,15 @@ def describe_stale(project: str, root: Optional[Path], limit: int = 10) -> str:
             lines.append(f"  A draft is already waiting for the user's approval ({by_label(draft.get('by', ''))}): {what}. "
                          f"Skip this one unless you think the draft is wrong.")
         if root is not None:
-            for path, saved in _links(memory["files"]):
+            for link, path, saved in _file_links(root, personal_as_memory(root, memory)["files"]):
                 now = current_version(root, path)
                 old = old_version(root, saved)
                 if now is None and not (root / path).exists():
                     moved = find_move(root, path, saved)
                     lines.append(f"  {path}: deleted" + (f" (looks moved to {moved})" if moved else ""))
                 elif old is None:
-                    lines.append(f"  {path}: changed; the saved version isn't in git, so read the file as it is now.")
+                    lines.append(f"  {_label(root, link)}: changed; the saved version isn't in git, so read the file "
+                                 f"as it is now.")
                 elif now is not None and old != now:
                     diff = list(difflib.unified_diff(old.splitlines(), now.splitlines(), f"a/{path}", f"b/{path}",
                                                      lineterm="", n=1))
@@ -834,15 +857,35 @@ def team_as_memory(root: Path, mem) -> dict:
     """A team memory in the shape the rules work on: its linked files, each with the git blob it was confirmed
     against when history has it (an empty hash when it doesn't, which the rules treat as needing judgment).
     Folders are left out: a folder's change is a call for a person or an AI, not for the rules."""
+    return {"id": mem.id, "status": "stale", "files": rules_files(root, mem.files), "text": mem.text}
+
+
+def rules_files(root: Path, links, personal: bool = False) -> str:
+    """Linked files in the shape the rules work on, "path@<git blob>": a saved hash that isn't a git blob (a team
+    fingerprint, or the hash of a part of a file) becomes the blob of the version in history it matches, or ""
+    when history has none, which the rules treat as needing judgment. A personal memory's whole-file links
+    already hold a git blob and stay as they are; its part links keep their #symbol, so a fix stays linked to
+    the part."""
     from . import team
-    links = []
-    for link, saved in mem.files:
-        path, _name = team.split_link(root, link)
+    out = []
+    for link, saved in links:
+        path, name = team.split_link(root, link)
+        if personal and not name:
+            out.append(f"{link}@{saved}")
+            continue
         if not saved or (root / path).is_dir():
             continue
         blob = team_old_blob(root, link, saved) or ""
-        links.append(f"{path}@{blob}")
-    return {"id": mem.id, "status": "stale", "files": ",".join(dict.fromkeys(links)), "text": mem.text}
+        out.append(f"{link if personal else path}@{blob}")
+    return ",".join(dict.fromkeys(out))
+
+
+def personal_as_memory(root: Path, memory: dict) -> dict:
+    """A personal memory in the shape the rules work on: see rules_files. Unchanged when it has no part links."""
+    links = _links(memory.get("files", ""))
+    if not any("#" in link for link, _ in links):
+        return memory
+    return dict(memory, files=rules_files(root, links, personal=True))
 
 
 def _team_flagged(root: Path) -> Dict[str, object]:
