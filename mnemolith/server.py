@@ -376,9 +376,14 @@ def check_staleness(project: Optional[str] = None, root: Optional[Path] = None) 
     return newly_stale
 
 
+class LinkGone(ValueError):
+    """Raised by confirm when a file (or part of a file) the memory depends on no longer exists."""
+
+
 def confirm(memory_id: str, root: Optional[Path] = None) -> Optional[bool]:
     """Marks a memory still true and re-links it to the current versions of its files, following a file that
-    was renamed or moved. Returns whether it has linked files, or None if there's no such memory."""
+    was renamed or moved. Returns whether it has linked files, or None if there's no such memory. Raises
+    LinkGone, changing nothing, if a linked file or part is gone and wasn't found elsewhere."""
     r = run("MEM.GET", memory_id)
     if r is None:
         return None
@@ -390,6 +395,12 @@ def confirm(memory_id: str, root: Optional[Path] = None) -> Optional[bool]:
             link = moved_to(link, saved, root) or link
         files.append(link)
     files = list(dict.fromkeys(files))
+    now = content_hashes(files, root)
+    gone = [shown_link(link, root) for link in files if now[link] == "missing"]
+    if gone:
+        raise LinkGone(f"{memory_id} depends on {', '.join(gone)}, which no longer exists. Nothing changed. If the "
+                       f"fact is still true, save it again with the right files and replaces=\"{memory_id}\"; if "
+                       f"not, retire it.")
     if files:
         run("MEM.FILES", memory_id, link_files(files, root), "REASON", "confirmed still true")
     run("MEM.STATUS", memory_id, "active", "REASON", "confirmed still true")
@@ -815,6 +826,8 @@ def confirm_memory(memory_id: str) -> str:
         linked = confirm(memory_id)
     except EngineDown as e:
         return store_down(e)
+    except LinkGone as e:
+        return str(e)
     if linked is None:
         return f"No memory with id {memory_id}."
     return f"Confirmed {memory_id}; it's active again" + (" and linked to the current file versions." if linked else ".")

@@ -1021,3 +1021,30 @@ def test_the_pull_request_description_sets_up_or_lists_what_this_branch_adds(rep
     later = team.pr_description(repo, "main")
     assert "adds or changes 1 team memory" in later and "Rounding is half-up." in later
     assert "The tax rate is 8 percent." not in later and "mnemolith team init" in later
+
+
+PART = "def product(p):\n    return p * 1.25\n\n\ndef other(x):\n    return x + 1\n"
+
+
+def test_a_part_link_follows_a_renamed_file_when_the_memory_is_confirmed(repo):
+    git(repo, "init", "-q")
+    team.init(repo)
+    (repo / "a.py").write_text(PART)
+    mem = team.add(repo, "product adds a markup.", ["a.py#product"])
+    (repo / "a.py").rename(repo / "b.py")
+    assert team.changed(team.find(repo, mem.name), repo) == ["a.py moved to b.py"]
+    done = team.confirm(repo, mem.name)
+    assert [p for p, _ in done.files] == ["b.py#product"] and team.changed(done, repo) == []
+
+
+def test_confirming_a_team_memory_whose_part_is_gone_is_refused_and_the_file_is_unchanged(repo):
+    git(repo, "init", "-q")
+    team.init(repo)
+    (repo / "a.py").write_text(PART)
+    mem = team.add(repo, "product adds a markup.", ["a.py#product"])
+    path = team.folder(repo) / "memories" / f"{mem.name}.md"
+    (repo / "a.py").write_text("def other(x):\n    return x + 1\n")
+    before = path.read_text()
+    with pytest.raises(team.TeamError, match="no longer exists"):
+        team.confirm(repo, mem.name)
+    assert path.read_text() == before

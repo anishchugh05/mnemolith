@@ -31,6 +31,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -343,13 +344,64 @@ def _now(root: Path, link: str) -> str:
 MAX_MOVE_SEARCH = 4000  # files looked through when a linked file is gone, to see where it went
 
 
+MAX_MOVE_SIZE = 512_000  # bigger files aren't read when looking for where a linked file went
+
+# Where a part link went, kept in memory so a gone part isn't searched for on every recall:
+# (root, link, saved) -> ("hit", file it was found in) or ("miss", hash of the candidate files' names, sizes, mtimes).
+_PART_MOVES: Dict[tuple, tuple] = {}
+MAX_PART_MOVES = 256
+_PART_MOVES_LOCK = threading.Lock()
+
+
+def _has_part(root: Path, file: str, name: str, saved: str) -> bool:
+    """Whether `file` has the part `name`, unchanged (its part hash is `saved`)."""
+    try:
+        target = root / file
+        if target.stat().st_size > MAX_MOVE_SIZE:
+            return False
+        text = target.read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    # a cheap look for the name first (case-blind, as Markdown headings match), before the part regexes
+    return name.lower() in text.lower() and _section_print(text, name) == saved
+
+
+def _candidates_seen(root: Path, files: List[str], pool: List[str]) -> str:
+    """A hash of what a part search looked through: the repo's file list plus each candidate's size and mtime."""
+    h = hashlib.sha1("\0".join(files).encode("utf-8"))
+    for f in pool:
+        try:
+            st = (root / f).stat()
+            h.update(f"\n{f}\0{st.st_size}\0{st.st_mtime_ns}".encode("utf-8"))
+        except OSError:
+            h.update(f"\n{f}\0gone".encode("utf-8"))
+    return h.hexdigest()
+
+
+def _keep_part_move(key: tuple, value: tuple) -> None:
+    with _PART_MOVES_LOCK:
+        _PART_MOVES.pop(key, None)
+        while len(_PART_MOVES) >= MAX_PART_MOVES:
+            _PART_MOVES.pop(next(iter(_PART_MOVES)))  # the oldest
+        _PART_MOVES[key] = value
+
+
 def moved_to(root: Path, link: str, saved: str = "", same=None) -> Optional[str]:
     """Where a linked file went, if it was renamed or moved: the link to use now, or None. A file with the same
-    contents somewhere else is a sure match; otherwise the only file with the same name is taken to be it.
-    `same` hashes a file the way `saved` was made: the team fingerprint, or server.blob_hash for a personal link."""
+    contents somewhere else is a sure match (for a part link: a file with the same part, unchanged); otherwise
+    the only file with the same name is taken to be it.
+    `same` hashes a file the way `saved` was made: the team fingerprint, or server.blob_hash for a personal link.
+    A part search is cached per (root, link, saved): a hit is reused while that file still has the part, a miss
+    while the candidate files are unchanged (names, sizes and mtimes; nothing is read)."""
     path, name = split_link(root, link)
     if (root / path).exists():
         return None
+    part_search = bool(name and saved and saved != "missing")
+    key = (str(root), link, saved)
+    with _PART_MOVES_LOCK:
+        cached = _PART_MOVES.get(key) if part_search else None
+    if cached and cached[0] == "hit" and _has_part(root, cached[1], name, saved):
+        return f"{cached[1]}#{name}"
     try:
         out = subprocess.run(["git", "ls-files", "-co", "--exclude-standard"], cwd=root, capture_output=True,
                              text=True, timeout=10)
@@ -360,15 +412,20 @@ def moved_to(root: Path, link: str, saved: str = "", same=None) -> Optional[str]
     base = Path(path).name
     same_name = [f for f in files if Path(f).name == base]
     found = None
+    pool = same_name + [f for f in files if Path(f).suffix == Path(path).suffix and f not in same_name]
     if saved and not name:
-        pool = same_name + [f for f in files if Path(f).suffix == Path(path).suffix and f not in same_name]
         for f in pool:
             try:
-                if (root / f).stat().st_size <= 512_000 and (same or fingerprint)(root / f) == saved:
+                if (root / f).stat().st_size <= MAX_MOVE_SIZE and (same or fingerprint)(root / f) == saved:
                     found = f
                     break
             except OSError:
                 continue
+    elif part_search:
+        seen = _candidates_seen(root, files, pool)
+        if not (cached and cached == ("miss", seen)):
+            found = next((f for f in pool if _has_part(root, f, name, saved)), None)
+            _keep_part_move(key, ("hit", found) if found else ("miss", seen))
     if found is None and len(same_name) == 1:
         found = same_name[0]
     if found is None:

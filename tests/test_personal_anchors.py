@@ -191,3 +191,180 @@ def test_a_part_link_follows_its_file_to_another_folder_and_confirm_relinks_it(e
     assert server.confirm("m1", repo) is True
     link, part_hash = engine["m1"]["files"].rsplit("@", 1)
     assert link == "lib/a.py#product" and len(part_hash) == 12 and engine["m1"]["status"] == "active"
+
+
+# k. a part link follows a rename (a.py -> b.py) when the part itself is unchanged
+
+def test_a_part_link_follows_a_rename_to_a_new_name_and_confirm_relinks_it(engine, repo):
+    add(engine, repo, "product adds a markup", ["a.py#product"])
+    git(repo, "mv", "a.py", "b.py")
+    assert stale(engine, repo) == ("stale", "a.py moved to b.py since this was saved")
+    assert server.confirm("m1", repo) is True
+    link, part_hash = engine["m1"]["files"].rsplit("@", 1)
+    assert link == "b.py#product" and len(part_hash) == 12 and engine["m1"]["status"] == "active"
+    assert server.check_staleness("shop", repo) == []
+
+
+def test_a_rename_that_also_edits_the_part_is_not_followed_and_confirm_is_refused(engine, repo):
+    add(engine, repo, "product adds a markup", ["a.py#product"])
+    before = engine["m1"]["files"]
+    git(repo, "mv", "a.py", "b.py")
+    (repo / "b.py").write_text(A.replace("1.25", "1.5"))
+    assert stale(engine, repo) == ("stale", "a.py was deleted since this was saved")
+    with pytest.raises(server.LinkGone):
+        server.confirm("m1", repo)
+    assert engine["m1"]["files"] == before and engine["m1"]["status"] == "stale"
+
+
+# l. confirming a memory whose part or file is gone is refused, and nothing changes
+
+GONE_PART = ("m1 depends on `product` in a.py, which no longer exists. Nothing changed. If the fact is still true, "
+             "save it again with the right files and replaces=\"m1\"; if not, retire it.")
+
+
+def test_confirm_is_refused_when_the_part_is_gone_from_a_file_that_still_exists(engine, repo):
+    add(engine, repo, "product adds a markup", ["a.py#product"])
+    before = engine["m1"]["files"]
+    (repo / "a.py").write_text("def other(x):\n    return x + 1\n")
+    assert stale(engine, repo)[0] == "stale"
+    with pytest.raises(server.LinkGone) as e:
+        server.confirm("m1", repo)
+    assert str(e.value) == GONE_PART
+    assert engine["m1"]["status"] == "stale" and engine["m1"]["files"] == before
+
+
+def test_confirm_is_refused_when_the_whole_file_is_gone(engine, repo):
+    add(engine, repo, "a.py has product", ["a.py"])
+    before = engine["m1"]["files"]
+    (repo / "a.py").unlink()
+    assert stale(engine, repo)[0] == "stale"
+    with pytest.raises(server.LinkGone, match="m1 depends on a.py, which no longer exists. Nothing changed"):
+        server.confirm("m1", repo)
+    assert engine["m1"]["status"] == "stale" and engine["m1"]["files"] == before
+
+
+def test_the_confirm_tool_returns_the_refusal_and_the_dashboard_gives_a_409_with_it(engine, repo, monkeypatch):
+    from mnemolith import ui
+    add(engine, repo, "product adds a markup", ["a.py#product"])
+    before = engine["m1"]["files"]
+    (repo / "a.py").write_text("def other(x):\n    return x + 1\n")
+    stale(engine, repo)
+    monkeypatch.setattr(server, "repo_root", lambda: repo)
+    monkeypatch.setattr(server, "_in_project", lambda m: True)
+    assert server.confirm_memory("m1") == GONE_PART
+    monkeypatch.setattr(ui, "repo_for", lambda p: repo)
+    with pytest.raises(ui.ApiError) as e:
+        ui.api_confirm({}, {"id": "m1"})
+    assert e.value.status == 409 and str(e.value) == GONE_PART
+    assert engine["m1"]["status"] == "stale" and engine["m1"]["files"] == before
+
+
+# m. several candidates for a renamed part: the one with the identical part wins
+
+def test_a_renamed_part_picks_the_file_whose_part_is_identical(engine, repo):
+    (repo / "c.py").write_text(A.replace("1.25", "9"))  # same suffix, an edited product
+    (repo / "aa.py").write_text(A.replace("1.25", "8"))
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "two")
+    add(engine, repo, "product adds a markup", ["a.py#product"])
+    git(repo, "mv", "a.py", "b.py")
+    assert stale(engine, repo) == ("stale", "a.py moved to b.py since this was saved")
+    server.confirm("m1", repo)
+    assert engine["m1"]["files"].startswith("b.py#product@") and engine["m1"]["status"] == "active"
+
+
+# n. Mender's "still true" approval refuses a gone part
+
+@pytest.mark.parametrize("text", [None, "product adds a markup"])
+def test_mender_still_true_is_refused_when_a_part_is_gone_and_nothing_is_written(engine, repo, mender_on,
+                                                                              monkeypatch, text):
+    add(engine, repo, "product adds a markup", ["a.py#product"])
+    (repo / "a.py").write_text("def other(x):\n    return x + 1\n")
+    assert stale(engine, repo)[0] == "stale"
+    draft = {"kind": "confirm", "files": ["a.py#product"], "text": "product adds a markup", "by": "rules"}
+    monkeypatch.setattr(mender, "load_drafts", lambda p: {"m1": draft})
+    monkeypatch.setattr(mender, "get_memory", lambda m: dict(engine[m], id=m))
+    monkeypatch.setattr(mender, "needs_decision", lambda m: True)
+    monkeypatch.setattr(mender, "drifted", lambda d, r: False)
+    dropped = []
+    monkeypatch.setattr(mender, "drop_draft", lambda *a: dropped.append(a))
+    before = dict(engine["m1"])
+    with pytest.raises(mender.Refused) as e:
+        mender.approve("shop", "m1", repo, text)
+    assert e.value.status == 409
+    assert str(e.value) == ("`product` is no longer in a.py, so this can't be confirmed or reworded as is. "
+                            "Retire it.")
+    assert engine["m1"] == before and dropped == []
+    assert "@missing" not in engine["m1"]["files"]
+
+
+def test_mender_reworded_approval_is_refused_when_a_part_is_gone_and_nothing_is_stored(engine, repo, mender_on,
+                                                                                    monkeypatch):
+    add(engine, repo, "product adds a markup", ["a.py#product"])
+    (repo / "a.py").write_text("def other(x):\n    return x + 1\n")
+    assert stale(engine, repo)[0] == "stale"
+    draft = {"kind": "replace", "files": ["a.py#product"], "text": "product adds a bigger markup", "by": "rules"}
+    monkeypatch.setattr(mender, "load_drafts", lambda p: {"m1": draft})
+    monkeypatch.setattr(mender, "get_memory", lambda m: dict(engine[m], id=m))
+    monkeypatch.setattr(mender, "needs_decision", lambda m: True)
+    monkeypatch.setattr(mender, "drifted", lambda d, r: False)
+    dropped, added = [], []
+    monkeypatch.setattr(mender, "drop_draft", lambda *a: dropped.append(a))
+    monkeypatch.setattr(server, "add_memory", lambda *a, **k: added.append(a) or ("m2", "added", ""))
+    before = dict(engine["m1"])
+    with pytest.raises(mender.Refused) as e:
+        mender.approve("shop", "m1", repo, "product adds a markup of 50%")
+    assert e.value.status == 409
+    assert str(e.value) == ("`product` is no longer in a.py, so this can't be confirmed or reworded as is. "
+                            "Retire it.")
+    assert engine["m1"] == before and dropped == [] and added == []
+    assert set(engine) == {"m1"}
+
+
+# o. the moved-part search is cached until a candidate file changes
+
+def test_a_repeated_moved_part_search_does_not_search_again_until_a_file_changes(engine, repo, monkeypatch):
+    add(engine, repo, "product adds a markup", ["a.py#product"])
+    link, saved = engine["m1"]["files"].rsplit("@", 1)
+    (repo / "c.py").write_text(A.replace("1.25", "9"))  # a candidate with an edited product
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "two")
+    git(repo, "rm", "-q", "a.py")  # the link's file is gone and no file has the part
+    reads = []
+    real = team._has_part
+
+    def counting(*args):
+        reads.append(args)
+        return real(*args)
+
+    monkeypatch.setattr(team, "_has_part", counting)
+    assert team.moved_to(repo, link, saved) is None
+    first = len(reads)
+    assert first > 0
+    assert team.moved_to(repo, link, saved) is None and team.moved_to(repo, link, saved) is None
+    assert len(reads) == first  # repeats cost stats only: no file is read again
+    # a candidate file changes: searched again (still not found)
+    (repo / "c.py").write_text(A.replace("1.25", "77"))  # a different size, so no clock resolution matters
+    assert team.moved_to(repo, link, saved) is None
+    assert len(reads) > first
+    # a new file with the part appears: searched again and found
+    again = len(reads)
+    (repo / "d.py").write_text(A)
+    assert team.moved_to(repo, link, saved) == "d.py#product"
+    assert len(reads) > again
+
+
+def test_a_found_moved_part_is_reused_without_a_search_and_researched_after_it_changes(engine, repo, monkeypatch):
+    add(engine, repo, "product adds a markup", ["a.py#product"])
+    link, saved = engine["m1"]["files"].rsplit("@", 1)
+    git(repo, "mv", "a.py", "b.py")
+    assert team.moved_to(repo, link, saved) == "b.py#product"
+    calls = []
+    real_run = team.subprocess.run
+    monkeypatch.setattr(team.subprocess, "run", lambda *a, **k: calls.append(a) or real_run(*a, **k))
+    assert team.moved_to(repo, link, saved) == "b.py#product"
+    assert calls == []  # no file listing, no search: only b.py's part hash is checked
+    (repo / "b.py").write_text(A.replace("1.25", "2"))  # the found file's part changed
+    (repo / "e.py").write_text(A)
+    assert team.moved_to(repo, link, saved) == "e.py#product"
+    assert calls != []

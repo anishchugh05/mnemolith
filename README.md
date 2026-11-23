@@ -320,7 +320,10 @@ start using it. The dashboard (`mnemolith ui`) has a Team memory section and a
   Undo the change exactly and the flag goes away on its own, since a team memory is checked against its fingerprints
   each time. Your own memories are different: once one is flagged, it stays flagged until you confirm it. They can
   link a part of a file too (`a.py#product`), and `confirm` follows a file that moved. A part link follows its file
-  only when one file with that name is left, so a rename to a new name isn't followed.
+  when it's renamed or moved, as long as the part itself didn't change in the same edit. `confirm` is refused, and
+  nothing changes, when a linked file or part is gone. For one of your own memories, retire it or save it again with
+  the right files; for a team memory, fix the `files:` line in its file and confirm again, or retire it. Mender won't
+  approve a fix that keeps a gone part either.
 - **Sharing moves, it doesn't copy.** A shared memory leaves your own memories, so nobody sees the same fact twice.
   Sharing something the team already has is refused, and `mnemolith team` points out two team memories that say
   nearly the same thing. `mnemolith team unshare <name>` takes one back.
@@ -416,8 +419,9 @@ That is for a whole file. Your AI can also link a part of one, as `path#symbol` 
 `path#symbol@<hash of the part>`, a 12-character hash of that part only, so an edit elsewhere in the file doesn't
 flag the memory, and one that removes the part says `` `symbol` is no longer in path``. A symbol that contains `,`
 or `@` is refused. If a linked file is gone, Mnemolith looks for where it went: a file with the same contents, or the
-only file with the same name. `confirm` then relinks the memory. Mender can draft a fix for a part link only when
-the version the memory was saved against was committed, because it finds the old part in git history.
+only file with the same name. A part link is also matched by an identical part. `confirm` then relinks the memory.
+Mender can draft a fix for a part link only when the version the memory was saved against was committed and is within
+the file's last 200 commits, because it finds the old part in git history.
 
 ### Memories never mutate silently
 

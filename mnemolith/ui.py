@@ -587,7 +587,10 @@ def api_confirm(_q, body) -> dict:
     if repo is None and _files(_pairs(got)["files"]):
         raise ApiError(409, "Can't re-link this memory's files from here: the dashboard doesn't know where the "
                             f"{project} repo is yet. Use your AI tool in that repo once, then try again.")
-    server.confirm(memory_id, repo)
+    try:
+        server.confirm(memory_id, repo)
+    except server.LinkGone as e:
+        raise ApiError(409, str(e))
     return {"ok": True}
 
 

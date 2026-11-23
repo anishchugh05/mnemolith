@@ -583,6 +583,18 @@ def by_label(by: str) -> str:
     return BY_LABEL.get(by, by.replace("-", " ").title() if by and by != "unknown" else "your AI tool")
 
 
+def _refuse_gone_parts(files: List[str], root: Path) -> None:
+    """An approval can't record a part of a file that's gone (it would be saved as missing and never flagged
+    again), so it's refused, naming the part. Whole files that are gone are left out, as before."""
+    parts = [f for f in files if f != _file_of(root, f)]
+    now = server.content_hashes(parts, root)
+    gone = [f for f in parts if now[f] == "missing"]
+    if gone:
+        from . import team
+        what = " and ".join(f"`{team.split_link(root, f)[1]}` is no longer in {_file_of(root, f)}" for f in gone)
+        raise Refused(409, f"{what}, so this can't be confirmed or reworded as is. Retire it.")
+
+
 def approve(project: str, memory_id: str, root: Optional[Path], text: Optional[str] = None) -> dict:
     """Applies a draft: replaces the memory with the drafted (or edited) text linked to the current files, or
     confirms it's still true. Refuses if the files changed since the draft, or the memory was already settled."""
@@ -603,6 +615,7 @@ def approve(project: str, memory_id: str, root: Optional[Path], text: Optional[s
     before = {"old_id": memory_id, "old_reason": server.status_reason(memory_id), "old_files": memory.get("files", ""),
               "by": draft.get("by", ""), "draft": draft}
     if draft["kind"] == "confirm" and text is None:
+        _refuse_gone_parts(files, root)
         server.run("MEM.FILES", memory_id, server.link_files(files, root) if files else "",
                    "REASON", f"confirmed still true (suggested by {who})")
         server.run("MEM.STATUS", memory_id, "active", "REASON", f"confirmed still true (suggested by {who})")
@@ -615,12 +628,14 @@ def approve(project: str, memory_id: str, root: Optional[Path], text: Optional[s
     if len(new_text) > 2000:
         raise Refused(400, "That's too long for one memory. Keep it to a sentence or two.")
     if new_text == " ".join(memory["text"].split()):
+        _refuse_gone_parts(files, root)
         server.run("MEM.FILES", memory_id, server.link_files(files, root) if files else "",
                    "REASON", "confirmed still true")
         server.run("MEM.STATUS", memory_id, "active", "REASON", "confirmed still true")
         drop_draft(project, memory_id)
         _record(project, memory_id, dict(before, kind="confirm"))
         return {"ok": True, "message": f"{memory_id} confirmed still true."}
+    _refuse_gone_parts(files, root)
     new_id, _outcome, _related = server.add_memory(project, new_text, server.link_files(files, root) if files else "",
                                                    source="mender")
     if new_id == memory_id:
