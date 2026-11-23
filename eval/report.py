@@ -2,7 +2,6 @@
 Usage: python3 report.py [batch]   (default: the latest batch)"""
 import json
 import sys
-from pathlib import Path
 
 from run import ARMS, RUNS, load_suite
 
