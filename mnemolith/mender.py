@@ -96,7 +96,8 @@ def _links(files: str) -> List[Tuple[str, str]]:
 
 def _file_links(root: Path, files: str) -> List[Tuple[str, str, str]]:
     """"a.py@<hash>,b.py#product@<hash>" -> [("a.py", "a.py", "<hash>"), ("b.py#product", "b.py", "<hash>")]:
-    each link, the file it's in, and its saved hash. A link to a part of a file reads the whole file."""
+    each link, the file it's in, and its saved hash. The saved hash is the whole file's; the rules then compare
+    only the part (see _part_versions)."""
     from . import team
     return [(link, team.split_link(root, link)[0], saved) for link, saved in _links(files)]
 
@@ -199,6 +200,12 @@ COMMON = {"the", "and", "for", "with", "this", "that", "our", "use", "uses", "us
           "have", "not", "but", "you", "its", "all", "any", "can", "into", "from", "when", "then", "than", "also",
           "set", "run", "runs", "need", "needs", "make", "file", "files", "project", "should", "must", "will",
           "via", "per", "true", "false", "yes", "none", "null"}
+# Words a swap may never replace or bring in: "the" -> "what" or "file contents" -> "it now" rewrites prose, not
+# a value. Only for swaps; what counts as related (COMMON, _key_words) stays as it is. Value words (true -> false,
+# yes -> no) are left out: a value change is never blocked.
+SWAP_COMMON = (COMMON - {"true", "false", "yes", "none", "null"}) | {
+    "it", "its", "is", "a", "an", "of", "to", "in", "on", "at", "by", "or", "as", "be", "what", "which", "who", "now",
+    "here", "there", "so", "if"}
 
 
 def _tokens(text: str) -> List[str]:
@@ -290,7 +297,19 @@ def _usable_swap(old: str, new: str) -> bool:
         return False
     if old.isdigit() and len(old) < 2:  # "8" -> "9" alone is too easy to match by accident
         return False
+    if _common_swap(old, new):
+        return False
     return len(old) >= 2
+
+
+def _common_swap(old: str, new: str) -> bool:
+    """A swap of common words, not of a value: one word for another where either is common ("file" -> "it"),
+    or a span where one side is nothing but common words ("file contents" -> "it now"). A value next to a common
+    word ("is 30s" -> "is 60s") isn't one."""
+    ot, nt = [t.lower() for t in _tokens(old)], [t.lower() for t in _tokens(new)]
+    if len(ot) <= 1 and len(nt) <= 1:
+        return any(t in SWAP_COMMON for t in ot + nt)
+    return any(side and all(t in SWAP_COMMON for t in side) for side in (ot, nt))
 
 
 def apply_swaps(text: str, swaps: List[Tuple[str, str]]) -> Tuple[str, List[Tuple[str, str]]]:
@@ -346,6 +365,10 @@ def draft_with_rules(memory: dict, root: Path) -> Optional[dict]:
             touched |= new_text != before
             # the moved file may also have been edited
             old_body, new_body = old_version(root, saved), current_version(root, moved)
+            if old_body is not None and new_body is not None:
+                old_body, new_body, gone = _part_versions(root, link, old_body, new_body, moved)
+                if gone:
+                    return None  # the part was renamed or removed: needs judgment (change_evidence names it)
             if old_body is not None and new_body is not None and old_body != new_body:
                 verdict = _compare(old_body, new_body, new_text, key_words, path)
                 new_text, undecided, touched = verdict["text"], undecided or verdict["undecided"], touched or verdict["touched"]
@@ -359,6 +382,9 @@ def draft_with_rules(memory: dict, root: Path) -> Optional[dict]:
             evidence.append({"kind": "file", "label": f"{_label(root, link)} changed, but the saved version isn't in git",
                              "detail": ""})
             continue
+        old_body, new_body, gone = _part_versions(root, link, old_body, new_body, path)
+        if gone:
+            return None  # the part was renamed or removed: needs judgment (change_evidence names it)
         verdict = _compare(old_body, new_body, new_text, key_words, path)
         new_text, undecided, touched = verdict["text"], undecided or verdict["undecided"], touched or verdict["touched"]
         swaps_used += verdict["swaps"]
@@ -375,9 +401,26 @@ def draft_with_rules(memory: dict, root: Path) -> Optional[dict]:
                   files, root, evidence or change_evidence(memory, root))
 
 
+def _part_versions(root: Path, link: str, old_body: str, new_body: str, path: str) -> Tuple[
+        Optional[str], Optional[str], Optional[dict]]:
+    """What the rules compare for a link: the whole old and new file, or for a part of a file (path#symbol) only
+    that part in each version. The third value is evidence naming the part when it's missing from one of them
+    (then nothing is compared). `path` is where the file is now."""
+    from . import team
+    name = team.split_link(root, link)[1]
+    if not name:
+        return old_body, new_body, None
+    old_part, new_part = team.section_text(old_body, name), team.section_text(new_body, name)
+    if old_part is None:
+        return None, None, {"kind": "file", "label": f"`{name}` wasn't in the saved version of {path}", "detail": ""}
+    if new_part is None:
+        return None, None, {"kind": "file", "label": f"`{name}` is no longer in {path}", "detail": ""}
+    return old_part, new_part, None
+
+
 def _compare(old_body: str, new_body: str, text: str, key_words: set, path: str) -> dict:
     pairs, removed, added = _line_pairs(old_body.splitlines(), new_body.splitlines())
-    swaps, related, evidence = [], False, []
+    swaps, related, evidence, value_lines = [], False, [], []
     for o, n in pairs:
         if COMMENT.match(o) and COMMENT.match(n):
             continue
@@ -386,9 +429,16 @@ def _compare(old_body: str, new_body: str, text: str, key_words: set, path: str)
         o_span, n_span = _changed_span(o, n)
         # an edited line is about the memory only if what changed in it is: "postgres:16" -> "postgres:17"
         # doesn't touch "we use Postgres"
-        if _related(o_span, key_words) or _related(n_span, key_words):
+        # A span of nothing but value words ("True" -> "False") has no key word of its own (they're in COMMON),
+        # so the line counts as related when the line as a whole shares a key word with the memory ("DEBUG").
+        values_only = _values_only(o_span) and _values_only(n_span)
+        if (_related(o_span, key_words) or _related(n_span, key_words)
+                or (values_only and (_related(o, key_words) or _related(n, key_words)))):
             related = True
-            swaps += swaps_for(o, n)
+            if values_only:
+                value_lines.append((o, n))
+            else:
+                swaps += swaps_for(o, n)
             evidence.append({"kind": "diff", "label": path, "detail": f"- {o.strip()}\n+ {n.strip()}"})
     for line, sign in [(l, "-") for l in removed] + [(l, "+") for l in added]:
         if not line.strip() or COMMENT.match(line):
@@ -397,11 +447,51 @@ def _compare(old_body: str, new_body: str, text: str, key_words: set, path: str)
             related = True
             evidence.append({"kind": "diff", "label": path, "detail": f"{sign} {line.strip()}"})
     new_text, used = apply_swaps(text, swaps)
+    unexplained_value = False
+    for o, n in value_lines:
+        new_text, value_used = _apply_value_swap(new_text, o, n)
+        used += value_used
+        unexplained_value |= not value_used
     # Related lines that no swap explains (a line added or removed outright, or an edit the memory words
     # differently) need judgment, so the change isn't settled by rules.
-    explained = bool(used) and not removed_or_added_related(removed, added, key_words)
+    explained = (bool(used) and not unexplained_value
+                 and not removed_or_added_related(removed, added, key_words))
     return {"text": new_text, "swaps": used, "touched": related, "evidence": evidence[:6],
             "undecided": related and not explained}
+
+
+VALUE_WORDS = {"true", "false", "yes", "no", "none", "null"}
+
+
+def _values_only(span: str) -> bool:
+    tokens = [t.lower() for t in _tokens(span)]
+    return bool(tokens) and all(t in VALUE_WORDS for t in tokens)
+
+
+def _sentences(text: str) -> List[str]:
+    """The memory cut into sentences, each keeping the space after it, so "".join() gives the text back."""
+    return re.split(r"(?<=[.!?])(?=\s)", text)
+
+
+def _apply_value_swap(text: str, old_line: str, new_line: str) -> Tuple[str, List[Tuple[str, str]]]:
+    """A value-word swap ("true" -> "false") from one edited line, made only in the sentences that share a key
+    word with the line and hold the old word. Each of those must hold it exactly once and not hold the new word
+    yet, or nothing changes: "Debug is true in dev, but false in prod." or a "true" about something else is
+    left for judgment. Swaps are lowercased, so _styled writes them the memory's way ("false", not "False")."""
+    line_words = _key_words(old_line) | _key_words(new_line)
+    for a, b in swaps_for(old_line, new_line):
+        a, b = a.lower(), b.lower()
+        if not _usable_swap(a, b):
+            continue
+        old_re, new_re = _word_re(a), _word_re(b)
+        parts = _sentences(text)
+        hits = [i for i, s in enumerate(parts) if _related(s, line_words) and old_re.search(s)]
+        if not hits or any(len(old_re.findall(parts[i])) != 1 or new_re.search(parts[i]) for i in hits):
+            continue
+        for i in hits:
+            parts[i] = old_re.sub(lambda m: _styled(b, m.group(0)), parts[i])
+        return "".join(parts), [(a, b)]
+    return text, []
 
 
 def removed_or_added_related(removed: List[str], added: List[str], key_words: set) -> bool:
@@ -411,13 +501,23 @@ def removed_or_added_related(removed: List[str], added: List[str], key_words: se
 def change_evidence(memory: dict, root: Path, limit: int = 8) -> List[dict]:
     """The lines that changed in a memory's linked files, as evidence to show next to a draft."""
     out = []
-    for _link, path, saved in _file_links(root, memory.get("files", "")):
+    for link, path, saved in _file_links(root, memory.get("files", "")):
         old, now = old_version(root, saved), current_version(root, path)
         if now is None and not (root / path).exists():
             moved = find_move(root, path, saved)
             out.append({"kind": "file", "label": f"{path} moved to {moved}" if moved else f"{path} was deleted", "detail": ""})
+            moved_now = current_version(root, moved) if moved else None
+            if old is not None and moved_now is not None:
+                gone = _part_versions(root, link, old, moved_now, moved)[2]
+                out += [gone] if gone else []
             continue
         if old is None or now is None or old == now:
+            continue
+        old, now, gone = _part_versions(root, link, old, now, path)
+        if gone:
+            out.append(gone)
+            continue
+        if old == now:
             continue
         lines = [l for l in difflib.unified_diff(old.splitlines(), now.splitlines(), lineterm="", n=0)
                  if l[:1] in "+-" and not l.startswith(("+++", "---")) and l[1:].strip()]
@@ -879,8 +979,8 @@ def rules_files(root: Path, links, personal: bool = False) -> str:
     """Linked files in the shape the rules work on, "path@<git blob>": a saved hash that isn't a git blob (a team
     fingerprint, or the hash of a part of a file) becomes the blob of the version in history it matches, or ""
     when history has none, which the rules treat as needing judgment. A personal memory's whole-file links
-    already hold a git blob and stay as they are; its part links keep their #symbol, so a fix stays linked to
-    the part."""
+    already hold a git blob and stay as they are. Part links, team or personal, keep their #symbol, so the rules
+    compare only the part and a fix stays linked to it."""
     from . import team
     out = []
     for link, saved in links:
@@ -891,7 +991,7 @@ def rules_files(root: Path, links, personal: bool = False) -> str:
         if not saved or (root / path).is_dir():
             continue
         blob = team_old_blob(root, link, saved) or ""
-        out.append(f"{link if personal else path}@{blob}")
+        out.append(f"{link}@{blob}")
     return ",".join(dict.fromkeys(out))
 
 
@@ -1041,7 +1141,8 @@ def describe_team_stale(project: str, root: Optional[Path], limit: int = 10) -> 
         for entry in memory["files"].split(","):
             if not entry:
                 continue
-            path, saved = entry.rsplit("@", 1)
+            link, saved = entry.rsplit("@", 1)
+            path = _file_of(root, link)  # a part link (path#symbol) shows its whole file's diff here
             old, now = old_version(root, saved), current_version(root, path)
             if now is None and not (root / path).exists():
                 lines.append(f"  {path}: deleted or moved")
